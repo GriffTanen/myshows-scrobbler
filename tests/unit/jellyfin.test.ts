@@ -1,4 +1,4 @@
-﻿import { describe, it, expect, beforeEach, afterEach, vi } from 'vite-plus/test'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vite-plus/test'
 import { JellyfinAdapter } from '../../src/adapters/jellyfin.js'
 import { EmbyAdapter } from '../../src/adapters/emby.js'
 import type { SourceConfig, NormalizedEvent } from '../../src/types.js'
@@ -340,6 +340,66 @@ describe('JellyfinAdapter polling diff', () => {
         container: 'mkv',
       },
     })
+  })
+
+  it('drops sessions of other users when a hidden user_filter is set', async () => {
+    const emitted: NormalizedEvent[] = []
+    const config = { ...makeConfig('jellyfin'), userFilter: ['JuFrolov'] }
+    const adapter = new JellyfinAdapter(config, {
+      onScrobble: async (e) => {
+        emitted.push(e)
+      },
+      onLog: () => {},
+    })
+    ;(adapter as unknown as { running: boolean }).running = true
+
+    const mine = { ...baseSession, Id: 'mine', UserId: 'user1', UserName: 'JuFrolov' }
+    const theirs = {
+      ...baseSession,
+      Id: 'theirs',
+      UserId: 'user2',
+      UserName: 'SomeoneElse',
+      NowPlayingItem: { ...baseSession.NowPlayingItem, Id: 'item-2' },
+    }
+
+    vi.stubGlobal(
+      'fetch',
+      routedFetch({
+        '/Sessions': () => sessionsResponse([mine, theirs]),
+        '/Items/item-1': () => itemResponse(baseSession.NowPlayingItem),
+        '/Items/item-2': () => itemResponse(theirs.NowPlayingItem),
+      }),
+    )
+
+    await tick(adapter)
+
+    expect(emitted).toHaveLength(1)
+    expect(emitted[0].sessionId).toBe('mine:item:item-1')
+  })
+
+  it('an empty user_filter counts every viewer', async () => {
+    const emitted: NormalizedEvent[] = []
+    const adapter = new JellyfinAdapter(makeConfig('jellyfin'), {
+      onScrobble: async (e) => {
+        emitted.push(e)
+      },
+      onLog: () => {},
+    })
+    ;(adapter as unknown as { running: boolean }).running = true
+
+    const someone = { ...baseSession, Id: 'someone', UserId: 'user2', UserName: 'SomeoneElse' }
+
+    vi.stubGlobal(
+      'fetch',
+      routedFetch({
+        '/Sessions': () => sessionsResponse([someone]),
+        '/Items/item-1': () => itemResponse(baseSession.NowPlayingItem),
+      }),
+    )
+
+    await tick(adapter)
+
+    expect(emitted).toHaveLength(1)
   })
 })
 
