@@ -12,6 +12,8 @@ import { readConfig, requireMyShowsUrl, setConfigPath, DEFAULT_PORT } from './co
 import { MyShowsClient, MYSHOWS_ENDPOINTS } from './scrobblers/myshows.js'
 import type { ScrobbleEndpoint } from './scrobblers/myshows.js'
 import { toScrobbleRequest } from './scrobblers/converter.js'
+import { autoConfirmScrobble, type ConfirmTarget } from './scrobblers/myshows-confirm.js'
+import { setWebAuthStatePath } from './scrobblers/myshows-web-auth.js'
 import { BaseAdapter } from './adapters/base.js'
 import { createAdapter, hasAdapter, registerAdapter } from './adapters/registry.js'
 import { PlexAdapter } from './adapters/plex.js'
@@ -98,6 +100,18 @@ function formatTitle(event: NormalizedEvent): string {
   return `${event.title}${event.year ? ` (${event.year})` : ''}`
 }
 
+function toConfirmTarget(event: NormalizedEvent): ConfirmTarget {
+  return {
+    type: event.type,
+    title: event.title,
+    originalTitle: event.originalTitle,
+    showTitle: event.showTitle,
+    showOriginalTitle: event.showOriginalTitle,
+    season: event.season,
+    episode: event.episode,
+  }
+}
+
 function percentOf(event: NormalizedEvent): number {
   const duration = event.duration ?? 0
   const viewOffset = event.viewOffset ?? 0
@@ -118,6 +132,9 @@ export async function createServer(options: ServerOptions) {
 
   if (options.configPath) {
     setConfigPath(options.configPath)
+  }
+  if (options.configPath) {
+    setWebAuthStatePath(options.configPath.replace(/config\.json$/, 'myshows-web-auth.json'))
   }
 
   const getConfig = (): AppConfig =>
@@ -399,6 +416,13 @@ export async function createServer(options: ServerOptions) {
 
     if (result.success) {
       logger.info(`${endpoint}: ${title} -> OK`)
+      if (endpoint === MYSHOWS_ENDPOINTS.SCROBBLE_STOP && config.autoConfirm) {
+        // Fire-and-forget: never let the experimental auto-confirm path affect the
+        // primary scrobble result, which has already succeeded at this point.
+        void autoConfirmScrobble(toConfirmTarget(event), title).catch((err: Error) => {
+          logger.error(`[myshows-confirm] Unexpected failure: ${err.message}`)
+        })
+      }
     } else {
       logger.error(`${endpoint}: ${title} -> FAIL: ${result.error}`)
     }

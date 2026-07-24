@@ -39,6 +39,7 @@ describe('readConfig / writeConfig', () => {
       stopAtThreshold: false,
       logLevel: 'debug',
       interceptOnly: true,
+      autoConfirm: false,
       sources: [
         {
           type: 'plex',

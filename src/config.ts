@@ -38,6 +38,7 @@ const DEFAULT_CONFIG: AppConfig = {
   stopAtThreshold: DEFAULT_STOP_AT_THRESHOLD,
   logLevel: 'info',
   interceptOnly: false,
+  autoConfirm: false,
   sources: [],
 }
 
@@ -97,6 +98,7 @@ function rawToConfig(raw: RawConfig): AppConfig {
         : DEFAULT_CONFIG.stopAtThreshold,
     logLevel: (raw.log_level as LogLevel) ?? DEFAULT_CONFIG.logLevel,
     interceptOnly: raw.intercept_only ?? false,
+    autoConfirm: raw.auto_confirm ?? false,
     sources: (raw.sources ?? []).map(rawSourceToConfig),
   }
 }
@@ -110,6 +112,7 @@ function configToRaw(config: AppConfig): RawConfig {
     stop_at_threshold: config.stopAtThreshold,
     log_level: config.logLevel,
     intercept_only: config.interceptOnly,
+    auto_confirm: config.autoConfirm,
     sources: config.sources.map(configSourceToRaw),
   }
 }

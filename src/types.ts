@@ -97,6 +97,10 @@ export interface AppConfig {
   stopAtThreshold: boolean
   logLevel: LogLevel
   interceptOnly: boolean
+  /** EXPERIMENTAL, unofficial: auto-approve scrobbles in the myshows.me watch-history
+   *  queue instead of requiring a manual click. Requires myshowsRefreshToken to be seeded
+   *  via data/myshows-web-auth.json — see src/scrobblers/myshows-web-auth.ts. */
+  autoConfirm: boolean
   sources: SourceConfig[]
 }
 
@@ -202,6 +206,7 @@ export interface RawConfig {
   stop_at_threshold?: boolean
   log_level: string
   intercept_only?: boolean
+  auto_confirm?: boolean
   sources: RawSourceConfig[]
 }
 

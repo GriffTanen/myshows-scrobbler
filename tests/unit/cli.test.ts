@@ -16,6 +16,7 @@ const baseConfig: AppConfig = {
   stopAtThreshold: true,
   logLevel: 'info',
   interceptOnly: false,
+  autoConfirm: false,
   sources: [],
 }
 
