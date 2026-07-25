@@ -26,7 +26,7 @@ import { resolveNuxtRef } from './nuxt-devalue.js'
 const RPC_URL = 'https://myshows.me/v3/rpc/'
 const WATCH_HISTORY_URL = 'https://myshows.me/profile/watch-history/'
 
-interface PendingEntry {
+export interface PendingEntry {
   scrobbleId: number
   objectType: 'episode' | 'movie'
   title: string
@@ -52,7 +52,7 @@ export interface ConfirmTarget {
  * into the same flat array (Nuxt interns repeated primitives). We resolve just the fields
  * we need rather than reconstructing the whole graph.
  */
-function extractPendingEntries(html: string): PendingEntry[] {
+export function extractPendingEntries(html: string): PendingEntry[] {
   const scriptMatch = /<script[^>]*id="__NUXT_DATA__"[^>]*>([\s\S]*?)<\/script>/.exec(html)
   if (!scriptMatch) {
     return []
@@ -131,7 +131,7 @@ function titlesMatch(a: string, b: string | null): boolean {
  * either title; movies match on title only. Ambiguous on rewatches or duplicate titles —
  * picks the first match, which is a real (accepted) limitation of not having a direct ID.
  */
-function findMatch(entries: PendingEntry[], target: ConfirmTarget): PendingEntry | null {
+export function findMatch(entries: PendingEntry[], target: ConfirmTarget): PendingEntry | null {
   return (
     entries.find((e) => {
       if (e.objectType !== target.type) {
@@ -320,10 +320,7 @@ export interface AutoConfirmOutcome {
   reason?: string
 }
 
-export async function autoConfirmScrobble(
-  target: ConfirmTarget,
-  logLabel: string,
-): Promise<AutoConfirmOutcome> {
+async function confirmOne(target: ConfirmTarget, logLabel: string): Promise<AutoConfirmOutcome> {
   let knownScrobbleId: number | null = null
 
   for (let attempt = 0; ; attempt++) {
@@ -356,4 +353,23 @@ export async function autoConfirmScrobble(
     }
     await sleep(CONFIRM_RETRY_DELAYS_MS[attempt])
   }
+}
+
+// Serialize all auto-confirm runs through one chain. Each run reads and rotates the single,
+// one-shot msRefreshToken (see myshows-web-auth.ts); two runs overlapping would race on it —
+// one spends the token and gets its replacement while the other still holds the spent copy,
+// which the server rejects AND can invalidate a concurrently-running browser session. Two
+// episodes finishing near-simultaneously is a realistic trigger, so we never let two confirms
+// touch the token at once. The per-attempt backoff (~2 min) now delays queued confirms, which
+// is fine: this is off the hot path (the scrobble /stop already succeeded).
+let confirmChain: Promise<unknown> = Promise.resolve()
+
+export function autoConfirmScrobble(
+  target: ConfirmTarget,
+  logLabel: string,
+): Promise<AutoConfirmOutcome> {
+  const run = confirmChain.then(() => confirmOne(target, logLabel))
+  // Keep the chain alive even if one run rejects, so a failure doesn't wedge the queue.
+  confirmChain = run.catch(() => {})
+  return run
 }
