@@ -311,6 +311,13 @@
     },
     "error": {
       "generic": "The operation failed"
-    }
+    },
+    "dir": {
+      "toMyshows": "To MyShows",
+      "toJellyfin": "To Jellyfin"
+    },
+    "descReverse": "Mark items watched in Jellyfin that you've already watched on MyShows (shows only — MyShows doesn't expose a watched-movies list). Nothing changes until you confirm.",
+    "foundShows": "{n} shows in your MyShows profile",
+    "foundMovieEp": "{m} movies · {e} episodes"
   }
 }

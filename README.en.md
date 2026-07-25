@@ -223,7 +223,7 @@ The "MyShows import" panel in the web UI:
 
 The operation is **idempotent**: re-running adds nothing (already-marked items are skipped). Shows and movies are matched by title, disambiguated by release year; ambiguous or not-found entries are excluded from the import.
 
-> The import is one-way: **Jellyfin → MyShows**. The reverse direction (MyShows → Jellyfin) is not implemented yet.
+The direction switch in the panel also supports the **reverse import: MyShows → Jellyfin** — mark items watched in Jellyfin that you've already watched on MyShows. The reverse direction covers **shows only** (MyShows exposes no watched-movies list) and matches series by IMDb id; the write to Jellyfin is reversible. Same preview before applying.
 
 
 ## Scrobble API

@@ -205,9 +205,13 @@ export async function fetchMyShowsConfirmations(): Promise<{
 
 // ── Watched-history import: Jellyfin -> MyShows (EXPERIMENTAL, Stage 1) ───
 
+export type SyncDirection = 'jellyfinToMyshows' | 'myshowsToJellyfin'
+
+/** Preview summary. Forward has found movies+episodes; reverse has foundShows. */
 export interface SyncPreview {
-  foundMovies: number
-  foundEpisodes: number
+  foundMovies?: number
+  foundEpisodes?: number
+  foundShows?: number
   already: number
   toAdd: number
   unmatched: number
@@ -220,8 +224,8 @@ export interface SyncApplyResult {
   failed: number
 }
 
-/** Scan Jellyfin watched history and diff against MyShows. Read-only (no writes). */
-export async function syncPreview(): Promise<{
+/** Scan and diff for the given direction. Read-only (no writes). */
+export async function syncPreview(direction: SyncDirection): Promise<{
   status: string
   reason?: string
   preview?: SyncPreview
@@ -229,13 +233,13 @@ export async function syncPreview(): Promise<{
   const res = await fetch(`${BASE}/api/sync/preview`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: '{}',
+    body: JSON.stringify({ direction }),
   })
   return parseJsonOrThrow<{ status: string; reason?: string; preview?: SyncPreview }>(res)
 }
 
-/** Apply the previewed import — mark the missing episodes watched on MyShows. */
-export async function syncApply(): Promise<{
+/** Apply the previewed import for the given direction. */
+export async function syncApply(direction: SyncDirection): Promise<{
   status: string
   reason?: string
   result?: SyncApplyResult
@@ -243,7 +247,7 @@ export async function syncApply(): Promise<{
   const res = await fetch(`${BASE}/api/sync/apply`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: '{}',
+    body: JSON.stringify({ direction }),
   })
   return parseJsonOrThrow<{ status: string; reason?: string; result?: SyncApplyResult }>(res)
 }

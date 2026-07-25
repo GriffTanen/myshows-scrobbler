@@ -2,7 +2,13 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import StatusDot, { type DotState } from './ui/StatusDot.vue'
-import { fetchMyShowsAuthStatus, syncPreview, syncApply, type SyncPreview } from '../../api'
+import {
+  fetchMyShowsAuthStatus,
+  syncPreview,
+  syncApply,
+  type SyncPreview,
+  type SyncDirection,
+} from '../../api'
 import type { SyncProgress } from '../../types'
 
 const props = defineProps<{
@@ -19,6 +25,7 @@ const preview = ref<SyncPreview | null>(null)
 const result = ref<{ added: number; skipped: number; failed: number } | null>(null)
 const errorMsg = ref('')
 const showUnmatched = ref(false)
+const direction = ref<SyncDirection>('jellyfinToMyshows')
 
 const dotState = computed<DotState>(() =>
   connected.value === true ? 'ok' : connected.value === false ? 'disabled' : 'unknown',
@@ -45,7 +52,7 @@ async function runPreview(): Promise<void> {
   errorMsg.value = ''
   phase.value = 'scanning'
   try {
-    const res = await syncPreview()
+    const res = await syncPreview(direction.value)
     if (res.status !== 'ok' || !res.preview) {
       errorMsg.value = res.reason ?? t('sync.error.generic')
       phase.value = 'idle'
@@ -63,7 +70,7 @@ async function runApply(): Promise<void> {
   errorMsg.value = ''
   phase.value = 'importing'
   try {
-    const res = await syncApply()
+    const res = await syncApply(direction.value)
     if (res.status !== 'ok' || !res.result) {
       errorMsg.value = res.reason ?? t('sync.error.generic')
       phase.value = 'preview'
@@ -83,6 +90,26 @@ function reset(): void {
   result.value = null
   showUnmatched.value = false
 }
+
+function setDirection(d: SyncDirection): void {
+  if (direction.value === d) {
+    return
+  }
+  direction.value = d
+  reset()
+}
+
+// A short human summary of what the preview found, per direction.
+const foundText = computed<string>(() => {
+  const p = preview.value
+  if (!p) {
+    return ''
+  }
+  if (direction.value === 'myshowsToJellyfin') {
+    return t('sync.foundShows', { n: p.foundShows ?? 0 })
+  }
+  return t('sync.foundMovieEp', { m: p.foundMovies ?? 0, e: p.foundEpisodes ?? 0 })
+})
 
 // When a fresh scan starts the backend may still be streaming the previous run's progress;
 // clear stale state as the user re-enters idle.
@@ -108,7 +135,27 @@ onMounted(refreshStatus)
     <div class="Panel__body">
       <!-- Idle / disconnected -->
       <template v-if="phase === 'idle'">
-        <p class="SyncPanel__desc">{{ t('sync.desc') }}</p>
+        <div class="SyncPanel__dirs">
+          <button
+            type="button"
+            class="SyncPanel__dir"
+            :class="{ 'SyncPanel__dir--active': direction === 'jellyfinToMyshows' }"
+            @click="setDirection('jellyfinToMyshows')"
+          >
+            {{ t('sync.dir.toMyshows') }}
+          </button>
+          <button
+            type="button"
+            class="SyncPanel__dir"
+            :class="{ 'SyncPanel__dir--active': direction === 'myshowsToJellyfin' }"
+            @click="setDirection('myshowsToJellyfin')"
+          >
+            {{ t('sync.dir.toJellyfin') }}
+          </button>
+        </div>
+        <p class="SyncPanel__desc">
+          {{ direction === 'myshowsToJellyfin' ? t('sync.descReverse') : t('sync.desc') }}
+        </p>
         <button
           type="button"
           class="SyncPanel__btn SyncPanel__btn--primary"
@@ -145,14 +192,7 @@ onMounted(refreshStatus)
       <template v-else-if="phase === 'preview' && preview">
         <div class="SyncPanel__found">
           <div class="SyncPanel__foundLabel">{{ t('sync.found') }}</div>
-          <div class="SyncPanel__foundCounts">
-            <span
-              ><b>{{ preview.foundMovies }}</b> {{ t('sync.movies') }}</span
-            >
-            <span
-              ><b>{{ preview.foundEpisodes }}</b> {{ t('sync.episodes') }}</span
-            >
-          </div>
+          <div class="SyncPanel__foundText">{{ foundText }}</div>
         </div>
 
         <div class="SyncPanel__rows">
@@ -329,6 +369,40 @@ onMounted(refreshStatus)
     padding: 8px 16px 0;
     font-size: 12px;
     color: var(--v2-error, #dc2626);
+  }
+
+  &__dirs {
+    display: flex;
+    gap: 6px;
+    padding: 12px 16px 0;
+  }
+  &__dir {
+    flex: 1;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 7px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    border: 1px solid var(--v2-border, #d4d8df);
+    background: transparent;
+    color: var(--v2-text-muted);
+    transition: all 0.14s;
+
+    &:hover {
+      color: var(--v2-text);
+    }
+    &--active {
+      background: var(--v2-brand, #e11d48);
+      border-color: var(--v2-brand, #e11d48);
+      color: #fff;
+    }
+  }
+
+  &__foundText {
+    font-size: 14px;
+    color: var(--v2-text);
+    font-weight: 600;
   }
 
   &__found {
