@@ -532,9 +532,13 @@ function onTokenEdit(value: string) {
             @emby-sign-in-cancel="onEmbySignInCancel"
             @emby-sign-in-submit="onEmbySignInSubmit"
           />
-          <MyShowsAuthPanel :live-confirmations="wsBus.myshowsConfirmations.value" />
+          <MyShowsAuthPanel />
         </div>
-        <EventsPanel :events="wsBus.events.value" :logs="allLogs" />
+        <EventsPanel
+          :events="wsBus.events.value"
+          :logs="allLogs"
+          :live-confirmations="wsBus.myshowsConfirmations.value"
+        />
       </div>
 
       <SetupPanel @source-toggle="onSetupSourceToggle" />

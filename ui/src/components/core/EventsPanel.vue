@@ -2,16 +2,24 @@
 import { computed, nextTick, onMounted, ref, useTemplateRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import EventRow from './EventRow.vue'
+import MyShowsConfirmationRow from './MyShowsConfirmationRow.vue'
 import Toggle from './ui/Toggle.vue'
 import { useEvents } from '../../composables/useEvents'
-import type { PollingLog, ScrobbleEvent } from '../../types'
+import { fetchMyShowsConfirmations } from '../../api'
+import type { MyShowsConfirmation, PollingLog, ScrobbleEvent } from '../../types'
 
 const props = defineProps<{
   events: ScrobbleEvent[]
   logs: PollingLog[]
+  liveConfirmations: MyShowsConfirmation[]
 }>()
 
 const { t } = useI18n()
+
+type Tab = 'events' | 'myshows'
+const activeTab = ref<Tab>(loadTab())
+
+watch(activeTab, (v) => saveTab(v))
 
 // Persistent toggles via localStorage
 const verbose = ref<boolean>(loadBool('events.verbose', false))
@@ -23,6 +31,32 @@ watch(follow, (v) => saveBool('events.follow', v))
 const eventsRef = computed(() => props.events)
 const logsRef = computed(() => props.logs)
 const { merged } = useEvents(eventsRef, logsRef, verbose)
+
+// MyShows confirmations: REST snapshot once on mount, merged with live WS entries
+// (not replayed over the socket on connect — same split as polling logs).
+const confirmationHistory = ref<MyShowsConfirmation[]>([])
+const confirmations = computed<MyShowsConfirmation[]>(() => {
+  const seen = new Set<string>()
+  const merged: MyShowsConfirmation[] = []
+  for (const entry of [...props.liveConfirmations, ...confirmationHistory.value]) {
+    const key = `${entry.timestamp}:${entry.title}`
+    if (seen.has(key)) {
+      continue
+    }
+    seen.add(key)
+    merged.push(entry)
+  }
+  return merged.slice(0, 50)
+})
+
+onMounted(async () => {
+  try {
+    const res = await fetchMyShowsConfirmations()
+    confirmationHistory.value = res.confirmations
+  } catch {
+    /* best-effort; live WS entries still work */
+  }
+})
 
 // Track expanded row by key (only one open at a time)
 const expandedKey = ref<string | null>(null)
@@ -41,7 +75,7 @@ async function scrollToTop() {
 watch(
   merged,
   () => {
-    if (follow.value) {
+    if (follow.value && activeTab.value === 'events') {
       void scrollToTop()
     }
   },
@@ -54,6 +88,20 @@ onMounted(() => {
   }
 })
 
+function loadTab(): Tab {
+  try {
+    return localStorage.getItem('events.tab') === 'myshows' ? 'myshows' : 'events'
+  } catch {
+    return 'events'
+  }
+}
+function saveTab(tab: Tab) {
+  try {
+    localStorage.setItem('events.tab', tab)
+  } catch {
+    /* ignore */
+  }
+}
 function loadBool(key: string, def: boolean): boolean {
   try {
     const v = localStorage.getItem(key)
@@ -80,8 +128,30 @@ function saveBool(key: string, value: boolean) {
 <template>
   <section class="Panel EventsPanel">
     <header class="Panel__header">
-      <h3 class="Panel__title">{{ t('events.title') }}</h3>
-      <div class="EventsPanel__controls">
+      <div class="EventsPanel__tabs" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          class="EventsPanel__tab"
+          :class="{ 'EventsPanel__tab--active': activeTab === 'events' }"
+          :aria-selected="activeTab === 'events'"
+          @click="activeTab = 'events'"
+        >
+          {{ t('events.title') }}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="EventsPanel__tab"
+          :class="{ 'EventsPanel__tab--active': activeTab === 'myshows' }"
+          :aria-selected="activeTab === 'myshows'"
+          @click="activeTab = 'myshows'"
+        >
+          {{ t('events.myshows.tab') }}
+        </button>
+      </div>
+
+      <div v-if="activeTab === 'events'" class="EventsPanel__controls">
         <label class="EventsPanel__ctl">
           <span>{{ t('events.verbose') }}</span>
           <Toggle v-model="verbose" :aria-label="t('events.verbose')" />
@@ -93,7 +163,7 @@ function saveBool(key: string, value: boolean) {
       </div>
     </header>
 
-    <div ref="list" class="EventsPanel__list">
+    <div v-if="activeTab === 'events'" ref="list" class="EventsPanel__list">
       <p v-if="merged.length === 0" class="EventsPanel__empty">{{ t('events.empty') }}</p>
       <EventRow
         v-for="item in merged"
@@ -103,11 +173,58 @@ function saveBool(key: string, value: boolean) {
         @toggle-expand="toggleExpand(item.key)"
       />
     </div>
+
+    <div v-else class="EventsPanel__list">
+      <p v-if="confirmations.length === 0" class="EventsPanel__empty">
+        {{ t('events.myshows.empty') }}
+      </p>
+      <MyShowsConfirmationRow
+        v-for="item in confirmations"
+        :key="`${item.timestamp}:${item.title}`"
+        :item="item"
+      />
+    </div>
   </section>
 </template>
 
 <style lang="scss">
 .EventsPanel {
+  &__tabs {
+    display: inline-flex;
+    gap: 4px;
+  }
+
+  &__tab {
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    padding: 4px 2px;
+    color: var(--v2-text-dim);
+
+    &--active {
+      color: var(--v2-text);
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+
+      &::before {
+        content: '';
+        width: 4px;
+        height: 16px;
+        background: var(--v2-brand);
+        border-radius: 1px;
+        display: inline-block;
+      }
+    }
+
+    &:not(&--active):hover {
+      color: var(--v2-text-muted);
+    }
+  }
+
   &__controls {
     display: inline-flex;
     align-items: center;

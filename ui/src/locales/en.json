@@ -186,7 +186,13 @@
       "scr": "SCR",
       "log": "LOG"
     },
-    "skipped": "skipped (below threshold)"
+    "skipped": "skipped (below threshold)",
+    "myshows": {
+      "tab": "MyShows",
+      "confirmed": "confirmed",
+      "failed": "failed",
+      "empty": "Nothing confirmed yet"
+    }
   },
   "tester": {
     "title": "Tester",
@@ -247,23 +253,17 @@
     "backendUnavailable": "Scrobbler backend is unavailable on port {port}"
   },
   "myshowsAuth": {
-    "title": "MyShows session (auto-confirm)",
-    "subtitle": "Connect your myshows.me session so watched episodes are approved automatically",
+    "title": "MyShows session",
     "status": {
       "connected": "Connected",
       "disconnected": "Not connected"
     },
+    "instructionsTitle": "How to connect",
     "instructions": {
       "step1": "1. Install the companion browser extension",
       "step2": "2. Log in to myshows.me as usual",
       "step3": "3. Click the extension icon — done"
     },
-    "note": "Experimental: uses an unofficial, reverse-engineered myshows.me API. May break without warning if the site changes.",
-    "history": {
-      "title": "Recent auto-confirm attempts",
-      "empty": "Nothing confirmed yet",
-      "confirmed": "confirmed",
-      "failed": "failed"
-    }
+    "note": "Experimental: uses an unofficial, reverse-engineered myshows.me API. May break without warning if the site changes."
   }
 }
