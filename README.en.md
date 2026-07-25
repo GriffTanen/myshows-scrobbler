@@ -18,6 +18,15 @@
 
 ---
 
+> **This is a fork** of [myshowsme/myshows-scrobbler](https://github.com/myshowsme/myshows-scrobbler) with two additions on top of the original:
+>
+> - a hidden per-user filter for the **Jellyfin** source (mirrors the existing Plex filter) — see [Filtering Jellyfin users](#filtering-jellyfin-users);
+> - **experimental** auto-approval of pending entries in MyShows.me's scrobble queue, via an undocumented internal site API — see [MyShows auto-confirm (experimental)](#myshows-auto-confirm-experimental). Use at your own risk; it can break without warning if the site changes.
+>
+> Everything else in this README documents the original project.
+
+---
+
 Watch the way you always do, in Plex, Jellyfin, Emby, Kodi or a plain desktop player. Don't worry about check-ins: your watch progress and date go to your [MyShows.me](https://myshows.me) profile automatically.
 
 The scrobbler runs locally: it tracks playback, and once you pass the watch threshold (80% by default) it checks the episode in on MyShows. Abandoned episodes don't count. No telemetry — data only goes to MyShows and your own media servers.
@@ -59,7 +68,7 @@ The app lives in the tray and keeps scrobbling with the window closed. Updates c
 | Source                        | Setup                                                                                                                                                                                                                                        |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Plex**                      | Token is discovered automatically from a local Plex Media Server. For a remote server, paste the `X-Plex-Token` manually                                                                                                                     |
-| **Jellyfin**                  | Quick Connect or an API key                                                                                                                                                                                                                  |
+| **Jellyfin**                  | Quick Connect or an API key. Per-user filter — [see below](#filtering-jellyfin-users)                                                                                                                                                        |
 | **Emby**                      | Username/password sign-in or an API key                                                                                                                                                                                                      |
 | **Kodi**                      | Web interface username, password and port are discovered automatically, or set by hand                                                                                                                                                       |
 | **VLC, mpv, MPC-HC/BE, IINA** | One click in the Setup panel: the app can edit the player config itself (HTTP interface for VLC and MPC, IPC for mpv and IINA) and starts reading exact position and state                                                                   |
@@ -154,6 +163,46 @@ On a shared Plex server, sessions from every user get scrobbled. To count only y
 ```
 
 Only sessions whose username (`User.title`) or ID (`User.id`) matches an entry are counted. Matching is case-insensitive and trims surrounding whitespace. An empty or omitted `user_filter` counts every viewer.
+
+### Filtering Jellyfin users
+
+Same idea for the `jellyfin` source (in this fork; upstream only filters Plex) — on a shared Jellyfin server, every user's playback gets scrobbled, not just yours. The `user_filter` field is also set by hand only, in `data/config.json`; there's no UI field for it:
+
+```json
+{
+  "type": "jellyfin",
+  "url": "http://localhost:8096",
+  "token": "jellyfin_api_key",
+  "user_filter": ["UserName"]
+}
+```
+
+Only sessions whose `UserName` or `UserId` matches an entry are counted (case-insensitive, trims whitespace). An empty or omitted `user_filter` counts every viewer. **Limitation**: `EmbyAdapter` extends the Jellyfin adapter's code but overrides session fetching with its own copy that doesn't call the filter — `user_filter` currently has no effect on the `emby` source.
+
+## MyShows auto-confirm (experimental)
+
+> ⚠️ Uses an **unofficial, reverse-engineered** internal myshows.me API (not the same as the public scrobble API above) — there's no support from MyShows for this, and behavior can change or break without warning on any site update. Use at your own risk.
+
+By default, every watched episode or movie lands in the "Pending" queue on myshows.me and needs a manual "Approve" click before it counts as watched. This feature automates that click.
+
+Enabled via `auto_confirm: true` in `data/config.json` (defaults to `false` — off):
+
+```json
+{
+  "auto_confirm": true
+}
+```
+
+### Connecting a session
+
+This feature needs a separate session token from your browser on myshows.me, distinct from `myshows_token`. Since it lives in an httpOnly cookie (invisible to regular page JavaScript), the only way to grab it is the companion browser extension shipped in this repo:
+
+1. Open `chrome://extensions` (or the equivalent in another Chromium browser) and enable **Developer mode**.
+2. **Load unpacked** → point it at the [`extension/`](extension/) folder in this repository.
+3. Open myshows.me and log in as usual.
+4. Click the extension icon, enter your scrobbler server's address (e.g. `192.168.1.100:3000`), click "Connect MyShows session".
+
+Connection status and recent confirm attempts show up in the scrobbler's web UI, on the "MyShows auto-confirm" panel and the "Confirmations" tab next to the events feed.
 
 ## Scrobble API
 
