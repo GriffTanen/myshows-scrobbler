@@ -513,30 +513,31 @@ function onTokenEdit(value: string) {
       </div>
 
       <div class="AppShell__grid">
-        <SourcesPanel
-          :sources="config.sources.value"
-          :statuses="sourceStatuses.statuses"
-          :has-active-source="hasConfiguredSource"
-          :intercept-only="config.interceptOnly.value"
-          :intercept-only-locked="config.interceptOnlyLocked.value"
-          :token-lookup="tokenLookup.tokenLookup.value"
-          :quick-connect="quickConnect.quickConnect.value"
-          :emby-sign-in="embySignIn.embySignIn.value"
-          @update:source="onSourceUpdate"
-          @update:intercept-only="onInterceptOnlyChange"
-          @find-token="onFindToken"
-          @quick-connect="onQuickConnect"
-          @quick-connect-cancel="onQuickConnectCancel"
-          @emby-sign-in-open="onEmbySignInOpen"
-          @emby-sign-in-cancel="onEmbySignInCancel"
-          @emby-sign-in-submit="onEmbySignInSubmit"
-        />
+        <div class="AppShell__sidebar">
+          <SourcesPanel
+            :sources="config.sources.value"
+            :statuses="sourceStatuses.statuses"
+            :has-active-source="hasConfiguredSource"
+            :intercept-only="config.interceptOnly.value"
+            :intercept-only-locked="config.interceptOnlyLocked.value"
+            :token-lookup="tokenLookup.tokenLookup.value"
+            :quick-connect="quickConnect.quickConnect.value"
+            :emby-sign-in="embySignIn.embySignIn.value"
+            @update:source="onSourceUpdate"
+            @update:intercept-only="onInterceptOnlyChange"
+            @find-token="onFindToken"
+            @quick-connect="onQuickConnect"
+            @quick-connect-cancel="onQuickConnectCancel"
+            @emby-sign-in-open="onEmbySignInOpen"
+            @emby-sign-in-cancel="onEmbySignInCancel"
+            @emby-sign-in-submit="onEmbySignInSubmit"
+          />
+          <MyShowsAuthPanel :live-confirmations="wsBus.myshowsConfirmations.value" />
+        </div>
         <EventsPanel :events="wsBus.events.value" :logs="allLogs" />
       </div>
 
       <SetupPanel @source-toggle="onSetupSourceToggle" />
-
-      <MyShowsAuthPanel :live-confirmations="wsBus.myshowsConfirmations.value" />
 
       <component :is="TesterPanel" v-if="TesterPanel" />
     </main>
@@ -616,6 +617,21 @@ function onTokenEdit(value: string) {
 
     @media (max-width: 1024px) {
       grid-template-columns: 1fr;
+    }
+  }
+
+  // Sources + MyShows session status, kept together so the session panel stays
+  // visible while the events list on the right scrolls independently.
+  &__sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: var(--v2-space-lg);
+    position: sticky;
+    top: var(--v2-space-lg);
+
+    // Nothing to stick beside once the grid collapses to one column.
+    @media (max-width: 1024px) {
+      position: static;
     }
   }
 
