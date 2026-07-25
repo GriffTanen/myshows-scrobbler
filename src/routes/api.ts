@@ -10,6 +10,7 @@ import type {
   SourceConfig,
   NowPlayingEntry,
   UpdateController,
+  MyShowsConfirmation,
 } from '../types.js'
 import { isLocalSource, sourceNeedsUrl, IDLE_UPDATE_STATUS, SOURCE_TYPES } from '../types.js'
 import type { BaseAdapter } from '../adapters/base.js'
@@ -46,6 +47,7 @@ import { seedRefreshToken, getCurrentRefreshToken } from '../scrobblers/myshows-
 interface ApiContext {
   getEvents: () => ScrobbleEvent[]
   getPollingLogs: () => PollingLog[]
+  getMyShowsConfirmations: () => MyShowsConfirmation[]
   getNowPlaying: () => NowPlayingEntry[]
   clearEvents: () => void
   adapters: Map<SourceType, BaseAdapter>
@@ -735,5 +737,11 @@ export async function apiRoutes(fastify: FastifyInstance, ctx: ApiContext): Prom
   // the UI without leaking the secret to the browser.
   fastify.get('/api/auth/myshows-status', async () => {
     return { connected: getCurrentRefreshToken() !== null }
+  })
+
+  // GET /api/auth/myshows-confirmations — recent auto-confirm attempts (newest first),
+  // in-memory only (same lifetime/cap as recentEvents, doesn't survive a restart).
+  fastify.get('/api/auth/myshows-confirmations', async () => {
+    return { confirmations: ctx.getMyShowsConfirmations() }
   })
 }

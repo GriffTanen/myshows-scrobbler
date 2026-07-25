@@ -1,5 +1,6 @@
 import { onMounted, onUnmounted, ref, type Ref } from 'vue'
 import type {
+  MyShowsConfirmation,
   NowPlayingEntry,
   PollingLog,
   ScrobbleEvent,
@@ -37,6 +38,7 @@ export function useWebSocket() {
   const events = ref<ScrobbleEvent[]>([])
   const logs = ref<PollingLog[]>([])
   const nowPlaying = ref<NowPlayingEntry[]>([])
+  const myshowsConfirmations = ref<MyShowsConfirmation[]>([])
   /** Latest sourceError per source type. Watch this ref to react. */
   const lastSourceError = ref<SourceErrorEvent | null>(null)
 
@@ -96,6 +98,8 @@ export function useWebSocket() {
           pushLog(data.data as PollingLog)
         } else if (data?.type === 'nowPlaying' && Array.isArray(data.data)) {
           nowPlaying.value = data.data as NowPlayingEntry[]
+        } else if (data?.type === 'myshowsConfirmation' && data.data) {
+          pushCapped(myshowsConfirmations, data.data as MyShowsConfirmation)
         } else if (data?.type === 'sourceError' && data.data) {
           const d = data.data as { source: SourceType; error: string; code: SourceErrorCode }
           lastSourceError.value = {
@@ -126,5 +130,5 @@ export function useWebSocket() {
   onMounted(connect)
   onUnmounted(disconnect)
 
-  return { connected, events, logs, nowPlaying, lastSourceError }
+  return { connected, events, logs, nowPlaying, myshowsConfirmations, lastSourceError }
 }

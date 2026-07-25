@@ -322,12 +322,23 @@ export interface PollingLog {
   repeatCount?: number
 }
 
+// ── MyShows auto-confirm history (EXPERIMENTAL) ──
+
+export interface MyShowsConfirmation {
+  timestamp: string
+  title: string
+  status: 'confirmed' | 'failed'
+  /** Present only when status is 'failed' — why the confirm attempt was abandoned. */
+  reason?: string
+}
+
 // ── WebSocket message types ──
 
 export type WsMessage =
   | { type: 'event'; data: ScrobbleEvent }
   | { type: 'log'; data: PollingLog }
   | { type: 'nowPlaying'; data: NowPlayingEntry[] }
+  | { type: 'myshowsConfirmation'; data: MyShowsConfirmation }
   | { type: 'sourceError'; data: { source: SourceType; error: string; code: SourceErrorCode } }
 
 // ── Adapter callback interface ──

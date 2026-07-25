@@ -183,8 +183,16 @@ export interface PollingLog {
   repeatCount?: number
 }
 
+export interface MyShowsConfirmation {
+  timestamp: string
+  title: string
+  status: 'confirmed' | 'failed'
+  reason?: string
+}
+
 export type WsMessage =
   | { type: 'event'; data: ScrobbleEvent }
   | { type: 'log'; data: PollingLog }
   | { type: 'nowPlaying'; data: NowPlayingEntry[] }
+  | { type: 'myshowsConfirmation'; data: MyShowsConfirmation }
   | { type: 'sourceError'; data: { source: SourceType; error: string; code: SourceErrorCode } }

@@ -6,6 +6,7 @@ import type {
   PollingLog,
   SourceType,
   NowPlayingEntry,
+  MyShowsConfirmation,
 } from './types.js'
 import { Logger, setDefaultLogger } from './logger.js'
 import { readConfig, requireMyShowsUrl, setConfigPath, DEFAULT_PORT } from './config.js'
@@ -155,6 +156,7 @@ export async function createServer(options: ServerOptions) {
 
   const recentEvents: ScrobbleEvent[] = []
   const pollingLogs: PollingLog[] = []
+  const myshowsConfirmations: MyShowsConfirmation[] = []
   const wsClients = new Set<import('ws').WebSocket>()
   const adapters = new Map<SourceType, BaseAdapter>()
 
@@ -174,6 +176,12 @@ export async function createServer(options: ServerOptions) {
     recentEvents.unshift(event)
     while (recentEvents.length > MAX_EVENTS) recentEvents.pop()
     broadcastWs({ type: 'event', data: event })
+  }
+
+  function addMyShowsConfirmation(entry: MyShowsConfirmation): void {
+    myshowsConfirmations.unshift(entry)
+    while (myshowsConfirmations.length > MAX_EVENTS) myshowsConfirmations.pop()
+    broadcastWs({ type: 'myshowsConfirmation', data: entry })
   }
 
   function addPollingLog(level: string, message: string): void {
@@ -419,9 +427,24 @@ export async function createServer(options: ServerOptions) {
       if (endpoint === MYSHOWS_ENDPOINTS.SCROBBLE_STOP && config.autoConfirm) {
         // Fire-and-forget: never let the experimental auto-confirm path affect the
         // primary scrobble result, which has already succeeded at this point.
-        void autoConfirmScrobble(toConfirmTarget(event), title).catch((err: Error) => {
-          logger.error(`[myshows-confirm] Unexpected failure: ${err.message}`)
-        })
+        void autoConfirmScrobble(toConfirmTarget(event), title)
+          .then((outcome) => {
+            addMyShowsConfirmation({
+              timestamp: new Date().toISOString(),
+              title,
+              status: outcome.confirmed ? 'confirmed' : 'failed',
+              reason: outcome.confirmed ? undefined : outcome.reason,
+            })
+          })
+          .catch((err: Error) => {
+            logger.error(`[myshows-confirm] Unexpected failure: ${err.message}`)
+            addMyShowsConfirmation({
+              timestamp: new Date().toISOString(),
+              title,
+              status: 'failed',
+              reason: err.message,
+            })
+          })
       }
     } else {
       logger.error(`${endpoint}: ${title} -> FAIL: ${result.error}`)
@@ -521,6 +544,7 @@ export async function createServer(options: ServerOptions) {
   await apiRoutes(fastify, {
     getEvents: () => recentEvents,
     getPollingLogs: () => pollingLogs,
+    getMyShowsConfirmations: () => myshowsConfirmations,
     getNowPlaying: () => Array.from(nowPlaying.values()),
     clearEvents: () => {
       recentEvents.length = 0

@@ -314,7 +314,16 @@ async function confirmScrobbleId(authToken: string, scrobbleId: number): Promise
  * only re-call scrobble.SetStatus on that id (retryConfirm) instead of re-fetching and
  * re-parsing the whole watch-history page on every attempt.
  */
-export async function autoConfirmScrobble(target: ConfirmTarget, logLabel: string): Promise<void> {
+export interface AutoConfirmOutcome {
+  confirmed: boolean
+  /** Present only when confirmed is false — why the attempt was abandoned. */
+  reason?: string
+}
+
+export async function autoConfirmScrobble(
+  target: ConfirmTarget,
+  logLabel: string,
+): Promise<AutoConfirmOutcome> {
   let knownScrobbleId: number | null = null
 
   for (let attempt = 0; ; attempt++) {
@@ -323,7 +332,7 @@ export async function autoConfirmScrobble(target: ConfirmTarget, logLabel: strin
     const authToken = getCachedAuthToken() ?? (await refreshSessionAuthToken())
     const refreshToken = authToken ? getCurrentRefreshToken() : null
     if (!authToken || !refreshToken) {
-      return
+      return { confirmed: false, reason: 'no session token' }
     }
 
     const result =
@@ -333,7 +342,7 @@ export async function autoConfirmScrobble(target: ConfirmTarget, logLabel: strin
 
     if (result.kind === 'confirmed') {
       info(`[myshows-confirm] Auto-confirmed: ${logLabel}`)
-      return
+      return { confirmed: true }
     }
     if (result.kind === 'pending_confirm') {
       knownScrobbleId = result.scrobbleId
@@ -341,8 +350,9 @@ export async function autoConfirmScrobble(target: ConfirmTarget, logLabel: strin
     if (result.kind === 'give_up' || attempt >= CONFIRM_RETRY_DELAYS_MS.length) {
       if (result.kind === 'not_found_yet' || result.kind === 'pending_confirm') {
         warn(`[myshows-confirm] Gave up confirming "${logLabel}" after ${attempt + 1} attempts`)
+        return { confirmed: false, reason: 'not found in pending queue after retries' }
       }
-      return
+      return { confirmed: false, reason: 'session refresh failed' }
     }
     await sleep(CONFIRM_RETRY_DELAYS_MS[attempt])
   }

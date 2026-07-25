@@ -536,7 +536,7 @@ function onTokenEdit(value: string) {
 
       <SetupPanel @source-toggle="onSetupSourceToggle" />
 
-      <MyShowsAuthPanel />
+      <MyShowsAuthPanel :live-confirmations="wsBus.myshowsConfirmations.value" />
 
       <component :is="TesterPanel" v-if="TesterPanel" />
     </main>

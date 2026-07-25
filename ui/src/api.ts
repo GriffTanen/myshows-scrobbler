@@ -1,6 +1,7 @@
 import type {
   AppConfig,
   AppConfigSnapshot,
+  MyShowsConfirmation,
   PollingLog,
   SourceConfig,
   SourceErrorCode,
@@ -188,6 +189,13 @@ export async function checkMyShows(token?: string): Promise<{ ok: boolean; error
 export async function fetchMyShowsAuthStatus(): Promise<{ connected: boolean }> {
   const res = await fetch(`${BASE}/api/auth/myshows-status`)
   return parseJsonOrThrow<{ connected: boolean }>(res)
+}
+
+export async function fetchMyShowsConfirmations(): Promise<{
+  confirmations: MyShowsConfirmation[]
+}> {
+  const res = await fetch(`${BASE}/api/auth/myshows-confirmations`)
+  return parseJsonOrThrow<{ confirmations: MyShowsConfirmation[] }>(res)
 }
 
 // ── One-click setup actions ─────────────────────────────────────────────

@@ -258,6 +258,12 @@
       "step2": "2. Log in to myshows.me as usual",
       "step3": "3. Click the extension icon — done"
     },
-    "note": "Experimental: uses an unofficial, reverse-engineered myshows.me API. May break without warning if the site changes."
+    "note": "Experimental: uses an unofficial, reverse-engineered myshows.me API. May break without warning if the site changes.",
+    "history": {
+      "title": "Recent auto-confirm attempts",
+      "empty": "Nothing confirmed yet",
+      "confirmed": "confirmed",
+      "failed": "failed"
+    }
   }
 }
