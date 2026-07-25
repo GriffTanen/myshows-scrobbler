@@ -11,7 +11,7 @@ import {
 import { languageToIso } from '../utils/audio-track.js'
 import { percentFromPosition, ticksToMs, ticksToRuntimeMinutes } from './time.js'
 import { fetchWithTimeout } from '../http.js'
-import type { PlayedItem } from '../scrobblers/myshows-sync.js'
+import type { PlayedItem, JellyfinMovie } from '../scrobblers/myshows-sync.js'
 
 // ── Jellyfin / Emby shared API types ──
 
@@ -525,6 +525,49 @@ export class JellyfinAdapter extends BaseAdapter {
       this.log('error', `markPlayed failed: ${(err as Error).message}`)
       return false
     }
+  }
+
+  /**
+   * Every movie in the library (played and not), normalized for the reverse import: its Jellyfin
+   * item id, title/year for the MyShows lookup, imdb for cross-checking the match, and current
+   * play state (so we only mark the ones not already played). Paged, read-only.
+   */
+  async fetchAllMovies(userId: string): Promise<JellyfinMovie[]> {
+    const pageSize = 200
+    const out: JellyfinMovie[] = []
+    for (let start = 0; ; start += pageSize) {
+      const params = new URLSearchParams({
+        Recursive: 'true',
+        IncludeItemTypes: 'Movie',
+        Fields: 'ProviderIds,UserData,OriginalTitle,ProductionYear',
+        StartIndex: String(start),
+        Limit: String(pageSize),
+      })
+      const url = `${this.config.url}/Users/${encodeURIComponent(userId)}/Items?${params}`
+      const res = await fetchWithTimeout(url, { headers: this.getHeaders() })
+      if (!res.ok) {
+        throw new Error(`Jellyfin movies API error: ${res.status}`)
+      }
+      const body = (await res.json()) as { Items?: JellyfinItem[] }
+      const items = body.Items ?? []
+      for (const it of items) {
+        if (!it.Id) {
+          continue
+        }
+        out.push({
+          itemId: it.Id,
+          title: it.Name ?? '',
+          originalTitle: it.OriginalTitle ?? null,
+          year: it.ProductionYear ?? null,
+          imdb: it.ProviderIds?.Imdb ?? null,
+          played: it.UserData?.Played === true,
+        })
+      }
+      if (items.length < pageSize) {
+        break
+      }
+    }
+    return out
   }
 }
 

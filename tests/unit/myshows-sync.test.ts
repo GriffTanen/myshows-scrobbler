@@ -5,6 +5,7 @@ import {
   findEpisodeId,
   groupEpisodesByShow,
   imdbFromMyShows,
+  imdbMatches,
   type PlayedItem,
 } from '../../src/scrobblers/myshows-sync.js'
 
@@ -114,5 +115,22 @@ describe('imdbFromMyShows', () => {
 
   it('keeps longer ids at their natural length', () => {
     expect(imdbFromMyShows(13443470)).toBe('tt13443470')
+  })
+})
+
+describe('imdbMatches', () => {
+  it('matches equal ids ignoring case/whitespace', () => {
+    expect(imdbMatches('tt0144084', 'TT0144084')).toBe(true)
+    expect(imdbMatches(' tt0144084 ', 'tt0144084')).toBe(true)
+  })
+
+  it('does not match different ids', () => {
+    expect(imdbMatches('tt0144084', 'tt0111161')).toBe(false)
+  })
+
+  it('never matches when either side is null', () => {
+    expect(imdbMatches(null, 'tt1')).toBe(false)
+    expect(imdbMatches('tt1', null)).toBe(false)
+    expect(imdbMatches(null, null)).toBe(false)
   })
 })

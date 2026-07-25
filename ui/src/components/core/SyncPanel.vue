@@ -106,7 +106,7 @@ const foundText = computed<string>(() => {
     return ''
   }
   if (direction.value === 'myshowsToJellyfin') {
-    return t('sync.foundShows', { n: p.foundShows ?? 0 })
+    return t('sync.foundShowsMovies', { s: p.foundShows ?? 0, m: p.foundMovies ?? 0 })
   }
   return t('sync.foundMovieEp', { m: p.foundMovies ?? 0, e: p.foundEpisodes ?? 0 })
 })

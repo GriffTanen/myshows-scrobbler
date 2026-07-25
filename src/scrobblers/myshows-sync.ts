@@ -214,6 +214,11 @@ async function isMovieWatched(movieId: number): Promise<boolean | null> {
   }
   return res.watchStatus !== null
 }
+/** MyShows movie's imdb id (already the tt… form), or null. Used to cross-check a title match. */
+async function getMovieImdb(movieId: number): Promise<string | null> {
+  const res = await rpcWithRefresh<{ imdbId: string | null }>('movies.GetById', { movieId })
+  return res?.imdbId ?? null
+}
 async function setMovieFinished(movieId: number): Promise<boolean> {
   // Note: the movie variant takes `movieId` (the episode variant takes `id`); passing `id` here
   // silently resolves to movieId=0 and 404s.
@@ -487,6 +492,16 @@ export async function applyImport(
 // ── Reverse import: MyShows -> Jellyfin (Stage 2, shows only) ────────────────
 
 /** Narrow view of the Jellyfin adapter the reverse import needs (keeps this module decoupled). */
+/** A movie read from Jellyfin for the reverse import (status + mapping fields). */
+export interface JellyfinMovie {
+  itemId: string
+  title: string
+  originalTitle: string | null
+  year: number | null
+  imdb: string | null
+  played: boolean
+}
+
 export interface JellyfinReverseTarget {
   resolveUserId(): Promise<string | null>
   fetchSeriesImdbIndex(userId: string): Promise<Map<string, string>>
@@ -494,6 +509,7 @@ export interface JellyfinReverseTarget {
     seriesId: string,
     userId: string,
   ): Promise<Map<string, { itemId: string; played: boolean }>>
+  fetchAllMovies(userId: string): Promise<JellyfinMovie[]>
   markPlayed(userId: string, itemId: string): Promise<boolean>
 }
 
@@ -507,6 +523,7 @@ export interface ReversePlanEntry {
 
 export interface ReversePreview {
   foundShows: number
+  foundMovies: number
   already: number
   toAdd: number
   unmatched: number
@@ -519,6 +536,11 @@ export interface ReversePreview {
  * then for every episode watched on MyShows decide already-played / to-add / unmatched against
  * Jellyfin's state. Shows/episodes missing from Jellyfin are reported, never guessed.
  */
+/** Case-insensitive IMDb id equality, tolerating null/absent on either side (→ no match). */
+export function imdbMatches(a: string | null, b: string | null): boolean {
+  return !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase()
+}
+
 export async function buildReversePreview(
   jf: JellyfinReverseTarget,
   userId: string,
@@ -526,9 +548,10 @@ export async function buildReversePreview(
 ): Promise<ReversePreview> {
   const shows = await getProfileShows()
   const imdbIndex = await jf.fetchSeriesImdbIndex(userId)
+  const movies = await jf.fetchAllMovies(userId)
   const plan: ReversePlanEntry[] = []
   let processed = 0
-  const total = shows.length
+  const total = shows.length + movies.length
 
   for (const show of shows) {
     processed += 1
@@ -574,11 +597,62 @@ export async function buildReversePreview(
     }
   }
 
+  // Movies: for each Jellyfin movie, find it on MyShows (search by title, disambiguate by year,
+  // cross-check imdb), read its watch status, and queue the ones watched on MyShows but not yet
+  // played in Jellyfin. Movies not watched on MyShows are simply skipped (not our case).
+  for (const movie of movies) {
+    processed += 1
+    onProgress?.(processed, total)
+
+    const label = `${movie.title}${movie.year ? ` (${movie.year})` : ''}`
+    const query = movie.originalTitle ?? movie.title
+    const candidates = await searchMovie(query)
+    const match = pickMovie(candidates, movie.year)
+    if (!match) {
+      // No confident MyShows match — can't check status. Skip silently unless the movie isn't
+      // played in Jellyfin (then it's worth reporting as unmatched so the user sees the gap).
+      if (!movie.played) {
+        plan.push({
+          label,
+          targetItemId: null,
+          status: 'unmatched',
+          reason:
+            candidates.length === 0 ? 'фильм не найден в MyShows' : 'неоднозначное совпадение',
+        })
+      }
+      continue
+    }
+    // Cross-check imdb when both sides have it; a mismatch means the title search hit the wrong film.
+    const msImdb = await getMovieImdb(match.id)
+    if (movie.imdb && msImdb && !imdbMatches(movie.imdb, msImdb)) {
+      if (!movie.played) {
+        plan.push({
+          label,
+          targetItemId: null,
+          status: 'unmatched',
+          reason: 'неоднозначное совпадение',
+        })
+      }
+      continue
+    }
+    const watched = await isMovieWatched(match.id)
+    if (watched !== true) {
+      // Not watched on MyShows (or lookup failed) → nothing to bring over. Skip.
+      continue
+    }
+    plan.push({
+      label,
+      targetItemId: movie.itemId,
+      status: movie.played ? 'already' : 'toAdd',
+    })
+  }
+
   const already = plan.filter((p) => p.status === 'already').length
   const toAdd = plan.filter((p) => p.status === 'toAdd').length
   const unmatchedEntries = plan.filter((p) => p.status === 'unmatched')
   return {
     foundShows: shows.length,
+    foundMovies: movies.length,
     already,
     toAdd,
     unmatched: unmatchedEntries.length,
