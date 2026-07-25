@@ -7,3 +7,6 @@ data/
 tests/e2e/.tmp/
 playwright-report/
 test-results/
+
+# Local pnpm content-addressable store (created by container builds bind-mounting the repo)
+.pnpm-store/

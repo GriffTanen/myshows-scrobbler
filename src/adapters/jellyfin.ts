@@ -305,7 +305,12 @@ export class JellyfinAdapter extends BaseAdapter {
     }
 
     try {
-      const sessions = await this.fetchSessions()
+      // Apply the hidden `user_filter` here (not in fetchSessions) so both the Jellyfin and
+      // the Emby adapter get it from one place — Emby overrides fetchSessions and would
+      // otherwise silently skip the filter.
+      const sessions = (await this.fetchSessions()).filter((s) =>
+        matchesUserFilter({ id: s.UserId, title: s.UserName }, this.config.userFilter),
+      )
       const currentIds = new Set(sessions.map((s) => s.Id))
       const nextPrevious = new Map<string, JellyfinSession>()
 
@@ -369,9 +374,7 @@ export class JellyfinAdapter extends BaseAdapter {
     }
 
     const sessions = (await response.json()) as JellyfinSession[]
-    // Hidden `user_filter` (config-only) restricts scrobbling to specific Jellyfin viewers.
-    return sessions
-      .filter((s) => s.NowPlayingItem && isScrobblableType(s.NowPlayingItem.Type))
-      .filter((s) => matchesUserFilter({ id: s.UserId, title: s.UserName }, this.config.userFilter))
+    // `user_filter` is applied in poll() (shared with the Emby adapter), not here.
+    return sessions.filter((s) => s.NowPlayingItem && isScrobblableType(s.NowPlayingItem.Type))
   }
 }
