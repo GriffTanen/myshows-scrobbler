@@ -168,9 +168,13 @@ interface CatalogMovie {
 }
 interface ProfileMovie {
   watchStatus: string | null
+  /** The user's own rating, 0 (unrated) to 5. */
+  rating?: number | null
 }
 interface ProfileShow {
   show: { id: number; title: string; titleOriginal: string }
+  /** The user's own rating for the show, 0 (unrated) to 5 (top-level, not the show's avg). */
+  rating?: number | null
 }
 interface ShowWithImdb {
   id: number
@@ -229,12 +233,46 @@ async function setMovieFinished(movieId: number): Promise<boolean> {
   return res !== null
 }
 
+// ── MyShows rating read/write (rating sync) ──────────────────────────────────
+
+/** The user's rating for a movie on MyShows, 1–5, or null when unrated / lookup failed. */
+async function getMovieRating(movieId: number): Promise<number | null> {
+  const res = await rpcWithRefresh<ProfileMovie>('profile.Movie', { movieId })
+  const r = res?.rating
+  return typeof r === 'number' && r > 0 ? r : null
+}
+/** Set (1–5) or clear (0) the user's rating for a movie. Returns success. */
+async function rateMovie(movieId: number, rating: number): Promise<boolean> {
+  const res = await rpcWithRefresh<unknown>('manage.RateMovie', { movieId, rating })
+  return res !== null
+}
+/** Set (1–5) or clear (0) the user's rating for a show. Note: the param key is `id`, not `showId`. */
+async function rateShow(showId: number, rating: number): Promise<boolean> {
+  const res = await rpcWithRefresh<unknown>('manage.RateShow', { id: showId, rating })
+  return res !== null
+}
+
 // ── MyShows read-side (reverse import: MyShows -> Jellyfin) ──
 
 /** The user's shows on MyShows (id + titles). */
 async function getProfileShows(): Promise<{ id: number; title: string; titleOriginal: string }[]> {
   const list = (await rpcWithRefresh<ProfileShow[]>('profile.Shows', {})) ?? []
   return list.map((r) => r.show).filter((sh) => !!sh && typeof sh.id === 'number')
+}
+
+/** The user's shows on MyShows with their own rating (1–5, or null when unrated), for rating sync. */
+async function getProfileShowsWithRating(): Promise<
+  { id: number; title: string; titleOriginal: string; rating: number | null }[]
+> {
+  const list = (await rpcWithRefresh<ProfileShow[]>('profile.Shows', {})) ?? []
+  return list
+    .filter((r) => !!r.show && typeof r.show.id === 'number')
+    .map((r) => ({
+      id: r.show.id,
+      title: r.show.title,
+      titleOriginal: r.show.titleOriginal,
+      rating: typeof r.rating === 'number' && r.rating > 0 ? r.rating : null,
+    }))
 }
 
 /** MyShows show's imdb id as the full `tt…` form, or null when the show has none. */
@@ -250,6 +288,34 @@ async function getShowImdb(showId: number): Promise<string | null> {
 export function imdbFromMyShows(id: number): string {
   return 'tt' + String(id).padStart(7, '0')
 }
+
+// ── Rating scale conversion (MyShows is 1–5, Jellyfin is 0–10) ───────────────
+
+/**
+ * MyShows rating (1–5) → Jellyfin rating (0–10). Simple ×2 so the halves line up
+ * (5→10, 4→8, …). Null/0 (unrated) stays null. Result is clamped to 0–10.
+ */
+export function myshowsToJellyfinRating(ms: number | null): number | null {
+  if (ms == null || ms <= 0) {
+    return null
+  }
+  return Math.min(10, Math.max(0, Math.round(ms * 2)))
+}
+
+/**
+ * Jellyfin rating (0–10, may carry a .5) → MyShows rating (1–5). Halve and round to nearest,
+ * but never round a positive rating down to 0 (a 1/10 becomes 1, not 0). Null/0 stays null.
+ * This is deliberately not a perfect inverse of the ×2 above: it makes re-preview idempotent
+ * (a 7/10 → 4 on MyShows → 8/10 back is stable once both sides settle) while never dropping a
+ * real rating to "unrated".
+ */
+export function jellyfinToMyshowsRating(jf: number | null): number | null {
+  if (jf == null || jf <= 0) {
+    return null
+  }
+  return Math.min(5, Math.max(1, Math.round(jf / 2)))
+}
+
 // ── Pure mapping helpers (unit-tested) ───────────────────────────────────────
 
 /**
@@ -500,6 +566,15 @@ export interface JellyfinMovie {
   year: number | null
   imdb: string | null
   played: boolean
+  /** The user's Jellyfin rating, 0–10 or null when unrated (for rating sync). */
+  rating: number | null
+}
+
+/** A series read from Jellyfin for rating sync: item id, imdb (for the MyShows match), rating. */
+export interface JellyfinSeries {
+  itemId: string
+  imdb: string
+  rating: number | null
 }
 
 export interface JellyfinReverseTarget {
@@ -511,6 +586,8 @@ export interface JellyfinReverseTarget {
   ): Promise<Map<string, { itemId: string; played: boolean }>>
   fetchAllMovies(userId: string): Promise<JellyfinMovie[]>
   markPlayed(userId: string, itemId: string): Promise<boolean>
+  fetchAllSeries(userId: string): Promise<JellyfinSeries[]>
+  setRating(userId: string, itemId: string, rating: number | null): Promise<boolean>
 }
 
 /** One reverse unit of work: a Jellyfin episode item to mark played. */
@@ -688,6 +765,257 @@ export async function applyReverse(
     warn(`[myshows-sync] Reverse import finished with ${failed} failures (added ${added})`)
   } else {
     info(`[myshows-sync] Reverse import complete: added ${added}, skipped ${skipped}`)
+  }
+  return { added, skipped, failed }
+}
+
+// ── Rating sync (movies + shows, both directions) ────────────────────────────
+
+export type SyncDirection = 'jellyfinToMyshows' | 'myshowsToJellyfin'
+
+/** One rating unit of work, side-agnostic: write `targetRating` for one item on the receiver. */
+export interface RatingPlanEntry {
+  kind: 'movie' | 'show'
+  label: string
+  /** MyShows id (movie/show) when the receiver is MyShows, else null. */
+  myshowsId: number | null
+  /** Jellyfin item id when the receiver is Jellyfin, else null. */
+  jellyfinItemId: string | null
+  /** The rating to write on the receiver, on the receiver's own scale. */
+  targetRating: number | null
+  status: 'already' | 'toAdd' | 'conflict'
+}
+
+export interface RatingPreview {
+  /** Items rated on the source side that we tried to map (the universe we care about). */
+  found: number
+  /** Source & receiver already agree (after scale conversion). */
+  already: number
+  /** Source is rated, receiver is unrated → we'd write it. */
+  toAdd: number
+  /** Both sides rated differently → skipped (never overwrite blindly). */
+  conflict: number
+  plan: RatingPlanEntry[]
+}
+
+type RatingStatus = 'already' | 'toAdd' | 'conflict' | 'skip'
+
+/**
+ * Decide what to do for one item given the source's rating and the receiver's current rating,
+ * both already normalized to the RECEIVER's scale. Pure — unit-tested.
+ * - source unrated → nothing to bring over (skip)
+ * - receiver unrated → write it (toAdd)
+ * - equal → already
+ * - different → conflict (never overwrite the receiver's own rating blindly)
+ */
+export function diffRating(
+  sourceOnReceiverScale: number | null,
+  receiverCurrent: number | null,
+): RatingStatus {
+  if (sourceOnReceiverScale == null) {
+    return 'skip'
+  }
+  if (receiverCurrent == null) {
+    return 'toAdd'
+  }
+  return receiverCurrent === sourceOnReceiverScale ? 'already' : 'conflict'
+}
+
+/**
+ * Plan rating sync (no writes) for movies and shows in one direction. Only items rated on the
+ * SOURCE side are considered (that's all we could ever bring over), which also keeps the RPC
+ * volume down. Mapping reuses the same title/imdb logic as the watched sync.
+ */
+export async function buildRatingPreview(
+  jf: JellyfinReverseTarget,
+  userId: string,
+  direction: SyncDirection,
+  onProgress?: ProgressFn,
+): Promise<RatingPreview> {
+  const plan: RatingPlanEntry[] = []
+  const jfMovies = await jf.fetchAllMovies(userId)
+  const jfSeries = await jf.fetchAllSeries(userId)
+  const msShows = await getProfileShowsWithRating()
+
+  if (direction === 'myshowsToJellyfin') {
+    // Source = MyShows, receiver = Jellyfin. Consider only MyShows-rated shows/movies.
+    const ratedShows = msShows.filter((s) => s.rating != null)
+    const jfSeriesByImdb = new Map(jfSeries.map((s) => [s.imdb.toLowerCase(), s]))
+    // Movies rated on MyShows aren't listable directly; walk Jellyfin movies and query each film's
+    // MyShows rating (same shape as the reverse watched import).
+    const total = ratedShows.length + jfMovies.length
+    let processed = 0
+
+    for (const show of ratedShows) {
+      processed += 1
+      onProgress?.(processed, total)
+      const imdb = await getShowImdb(show.id)
+      const jfS = imdb ? jfSeriesByImdb.get(imdb.toLowerCase()) : undefined
+      if (!jfS) {
+        continue // no Jellyfin series to write onto — skip silently
+      }
+      const target = myshowsToJellyfinRating(show.rating)
+      const status = diffRating(target, jfS.rating)
+      if (status === 'skip') {
+        continue
+      }
+      plan.push({
+        kind: 'show',
+        label: show.titleOriginal || show.title,
+        myshowsId: null,
+        jellyfinItemId: jfS.itemId,
+        targetRating: target,
+        status,
+      })
+    }
+
+    for (const movie of jfMovies) {
+      processed += 1
+      onProgress?.(processed, total)
+      const query = movie.originalTitle ?? movie.title
+      const match = pickMovie(await searchMovie(query), movie.year)
+      if (!match) {
+        continue
+      }
+      const msImdb = await getMovieImdb(match.id)
+      if (movie.imdb && msImdb && !imdbMatches(movie.imdb, msImdb)) {
+        continue // wrong film matched by title
+      }
+      const msRating = await getMovieRating(match.id)
+      if (msRating == null) {
+        continue // not rated on MyShows → nothing to bring over
+      }
+      const target = myshowsToJellyfinRating(msRating)
+      const status = diffRating(target, movie.rating)
+      if (status === 'skip') {
+        continue
+      }
+      plan.push({
+        kind: 'movie',
+        label: `${movie.title}${movie.year ? ` (${movie.year})` : ''}`,
+        myshowsId: null,
+        jellyfinItemId: movie.itemId,
+        targetRating: target,
+        status,
+      })
+    }
+  } else {
+    // Source = Jellyfin, receiver = MyShows. Consider only Jellyfin-rated shows/movies.
+    const ratedSeries = jfSeries.filter((s) => s.rating != null)
+    const ratedMovies = jfMovies.filter((m) => m.rating != null)
+    const showByImdb = new Map<string, (typeof msShows)[number]>()
+    // Build an imdb→MyShows-show map once (one shows.GetById per profile show).
+    const total = ratedSeries.length + ratedMovies.length
+    let processed = 0
+
+    for (const series of ratedSeries) {
+      processed += 1
+      onProgress?.(processed, total)
+      // Find the MyShows show whose imdb matches this Jellyfin series.
+      let msShow = showByImdb.get(series.imdb.toLowerCase())
+      if (!msShow) {
+        for (const s of msShows) {
+          const imdb = await getShowImdb(s.id)
+          if (imdb && imdbMatches(imdb, series.imdb)) {
+            showByImdb.set(series.imdb.toLowerCase(), s)
+            msShow = s
+            break
+          }
+        }
+      }
+      if (!msShow) {
+        continue
+      }
+      const target = jellyfinToMyshowsRating(series.rating)
+      const status = diffRating(target, msShow.rating)
+      if (status === 'skip') {
+        continue
+      }
+      plan.push({
+        kind: 'show',
+        label: msShow.titleOriginal || msShow.title,
+        myshowsId: msShow.id,
+        jellyfinItemId: null,
+        targetRating: target,
+        status,
+      })
+    }
+
+    for (const movie of ratedMovies) {
+      processed += 1
+      onProgress?.(processed, total)
+      const query = movie.originalTitle ?? movie.title
+      const match = pickMovie(await searchMovie(query), movie.year)
+      if (!match) {
+        continue
+      }
+      const msImdb = await getMovieImdb(match.id)
+      if (movie.imdb && msImdb && !imdbMatches(movie.imdb, msImdb)) {
+        continue
+      }
+      const msRating = await getMovieRating(match.id)
+      const target = jellyfinToMyshowsRating(movie.rating)
+      const status = diffRating(target, msRating)
+      if (status === 'skip') {
+        continue
+      }
+      plan.push({
+        kind: 'movie',
+        label: `${movie.title}${movie.year ? ` (${movie.year})` : ''}`,
+        myshowsId: match.id,
+        jellyfinItemId: null,
+        targetRating: target,
+        status,
+      })
+    }
+  }
+
+  return {
+    found: plan.length,
+    already: plan.filter((p) => p.status === 'already').length,
+    toAdd: plan.filter((p) => p.status === 'toAdd').length,
+    conflict: plan.filter((p) => p.status === 'conflict').length,
+    plan,
+  }
+}
+
+/**
+ * Apply a rating preview's toAdd entries: write each rating on the receiver, one at a time (shared
+ * token mutex reasoning as the watched sync). Conflicts are never written. Reversible either way.
+ */
+export async function applyRatings(
+  jf: JellyfinReverseTarget,
+  userId: string,
+  direction: SyncDirection,
+  plan: RatingPlanEntry[],
+  onProgress?: ProgressFn,
+): Promise<ApplyResult> {
+  const toAdd = plan.filter((p) => p.status === 'toAdd' && p.targetRating != null)
+  let added = 0
+  let failed = 0
+  for (let i = 0; i < toAdd.length; i++) {
+    const entry = toAdd[i]
+    let ok = false
+    if (direction === 'myshowsToJellyfin' && entry.jellyfinItemId) {
+      ok = await jf.setRating(userId, entry.jellyfinItemId, entry.targetRating)
+    } else if (direction === 'jellyfinToMyshows' && entry.myshowsId != null) {
+      ok =
+        entry.kind === 'movie'
+          ? await rateMovie(entry.myshowsId, entry.targetRating as number)
+          : await rateShow(entry.myshowsId, entry.targetRating as number)
+    }
+    if (ok) {
+      added += 1
+    } else {
+      failed += 1
+    }
+    onProgress?.(i + 1, toAdd.length)
+  }
+  const skipped = plan.filter((p) => p.status !== 'toAdd').length
+  if (failed > 0) {
+    warn(`[myshows-sync] Rating sync finished with ${failed} failures (added ${added})`)
+  } else {
+    info(`[myshows-sync] Rating sync complete: added ${added}, skipped ${skipped}`)
   }
   return { added, skipped, failed }
 }

@@ -6,6 +6,9 @@ import {
   groupEpisodesByShow,
   imdbFromMyShows,
   imdbMatches,
+  myshowsToJellyfinRating,
+  jellyfinToMyshowsRating,
+  diffRating,
   type PlayedItem,
 } from '../../src/scrobblers/myshows-sync.js'
 
@@ -132,5 +135,52 @@ describe('imdbMatches', () => {
     expect(imdbMatches(null, 'tt1')).toBe(false)
     expect(imdbMatches('tt1', null)).toBe(false)
     expect(imdbMatches(null, null)).toBe(false)
+  })
+})
+
+describe('myshowsToJellyfinRating', () => {
+  it('doubles the 1–5 scale onto 0–10', () => {
+    expect(myshowsToJellyfinRating(5)).toBe(10)
+    expect(myshowsToJellyfinRating(4)).toBe(8)
+    expect(myshowsToJellyfinRating(1)).toBe(2)
+  })
+  it('treats null/0 as unrated', () => {
+    expect(myshowsToJellyfinRating(null)).toBeNull()
+    expect(myshowsToJellyfinRating(0)).toBeNull()
+  })
+})
+
+describe('jellyfinToMyshowsRating', () => {
+  it('halves the 0–10 scale onto 1–5', () => {
+    expect(jellyfinToMyshowsRating(10)).toBe(5)
+    expect(jellyfinToMyshowsRating(8)).toBe(4)
+    expect(jellyfinToMyshowsRating(6)).toBe(3)
+  })
+  it('never rounds a positive rating down to unrated', () => {
+    expect(jellyfinToMyshowsRating(1)).toBe(1)
+  })
+  it('rounds halves to the nearest MyShows point', () => {
+    expect(jellyfinToMyshowsRating(7)).toBe(4) // 3.5 → 4
+    expect(jellyfinToMyshowsRating(5)).toBe(3) // 2.5 → 3
+  })
+  it('treats null/0 as unrated', () => {
+    expect(jellyfinToMyshowsRating(null)).toBeNull()
+    expect(jellyfinToMyshowsRating(0)).toBeNull()
+  })
+})
+
+describe('diffRating', () => {
+  it('skips when the source is unrated (nothing to bring over)', () => {
+    expect(diffRating(null, null)).toBe('skip')
+    expect(diffRating(null, 8)).toBe('skip')
+  })
+  it('adds when the receiver is unrated', () => {
+    expect(diffRating(8, null)).toBe('toAdd')
+  })
+  it('is already-in-sync when both sides agree', () => {
+    expect(diffRating(8, 8)).toBe('already')
+  })
+  it('is a conflict when both sides rated differently', () => {
+    expect(diffRating(8, 6)).toBe('conflict')
   })
 })

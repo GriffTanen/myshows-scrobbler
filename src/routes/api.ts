@@ -49,8 +49,11 @@ import {
   applyImport,
   buildReversePreview,
   applyReverse,
+  buildRatingPreview,
+  applyRatings,
   type PlanEntry,
   type ReversePlanEntry,
+  type RatingPlanEntry,
 } from '../scrobblers/myshows-sync.js'
 import { JellyfinAdapter } from '../adapters/jellyfin.js'
 
@@ -774,6 +777,9 @@ export async function apiRoutes(fastify: FastifyInstance, ctx: ApiContext): Prom
   type SyncDirection = 'jellyfinToMyshows' | 'myshowsToJellyfin'
   let lastForwardPlan: PlanEntry[] = []
   let lastReversePlan: ReversePlanEntry[] = []
+  // Rating plan travels in the same run as the watched plan; stashed per direction alongside it.
+  let lastForwardRatings: RatingPlanEntry[] = []
+  let lastReverseRatings: RatingPlanEntry[] = []
 
   function jellyfinAdapter(): JellyfinAdapter | null {
     const adapter = ctx.adapters.get('jellyfin')
@@ -783,6 +789,13 @@ export async function apiRoutes(fastify: FastifyInstance, ctx: ApiContext): Prom
   function directionOf(body: unknown): SyncDirection {
     const d = (body as { direction?: string } | undefined)?.direction
     return d === 'myshowsToJellyfin' ? 'myshowsToJellyfin' : 'jellyfinToMyshows'
+  }
+
+  function mergeResults(
+    a: { added: number; skipped: number; failed: number },
+    b: { added: number; skipped: number; failed: number },
+  ): { added: number; skipped: number; failed: number } {
+    return { added: a.added + b.added, skipped: a.skipped + b.skipped, failed: a.failed + b.failed }
   }
 
   // POST /api/sync/preview — read-only scan + diff for the requested direction. No writes.
@@ -805,14 +818,28 @@ export async function apiRoutes(fastify: FastifyInstance, ctx: ApiContext): Prom
       if (directionOf(req.body) === 'myshowsToJellyfin') {
         const preview = await buildReversePreview(adapter, userId, onScan)
         lastReversePlan = preview.plan
+        const ratings = await buildRatingPreview(adapter, userId, 'myshowsToJellyfin', onScan)
+        lastReverseRatings = ratings.plan
         const { plan: _plan, ...summary } = preview
-        return { status: 'ok', direction: 'myshowsToJellyfin', preview: summary }
+        const { plan: _rplan, ...ratingSummary } = ratings
+        return {
+          status: 'ok',
+          direction: 'myshowsToJellyfin',
+          preview: { ...summary, ratings: ratingSummary },
+        }
       }
       const items = await adapter.fetchPlayedItems(userId)
       const preview = await buildPreview(items, onScan)
       lastForwardPlan = preview.plan
+      const ratings = await buildRatingPreview(adapter, userId, 'jellyfinToMyshows', onScan)
+      lastForwardRatings = ratings.plan
       const { plan: _plan, ...summary } = preview
-      return { status: 'ok', direction: 'jellyfinToMyshows', preview: summary }
+      const { plan: _rplan, ...ratingSummary } = ratings
+      return {
+        status: 'ok',
+        direction: 'jellyfinToMyshows',
+        preview: { ...summary, ratings: ratingSummary },
+      }
     } catch (err) {
       reply.code(502)
       return { status: 'error', reason: (err as Error).message }
@@ -825,7 +852,7 @@ export async function apiRoutes(fastify: FastifyInstance, ctx: ApiContext): Prom
       ctx.broadcast({ type: 'syncProgress', data: { phase: 'importing', done, total } })
 
     if (directionOf(req.body) === 'myshowsToJellyfin') {
-      if (lastReversePlan.length === 0) {
+      if (lastReversePlan.length === 0 && lastReverseRatings.length === 0) {
         reply.code(409)
         return { status: 'error', reason: 'Run a preview first' }
       }
@@ -836,16 +863,31 @@ export async function apiRoutes(fastify: FastifyInstance, ctx: ApiContext): Prom
         return { status: 'error', reason: 'Could not resolve a Jellyfin user' }
       }
       const result = await applyReverse(adapter, userId, lastReversePlan, onImport)
+      const ratingResult = await applyRatings(
+        adapter,
+        userId,
+        'myshowsToJellyfin',
+        lastReverseRatings,
+        onImport,
+      )
       lastReversePlan = []
-      return { status: 'ok', result }
+      lastReverseRatings = []
+      return { status: 'ok', result: mergeResults(result, ratingResult) }
     }
 
-    if (lastForwardPlan.length === 0) {
+    if (lastForwardPlan.length === 0 && lastForwardRatings.length === 0) {
       reply.code(409)
       return { status: 'error', reason: 'Run a preview first' }
     }
+    const adapter = jellyfinAdapter()
+    const userId = adapter ? await adapter.resolveUserId() : null
     const result = await applyImport(lastForwardPlan, onImport)
+    const ratingResult =
+      adapter && userId
+        ? await applyRatings(adapter, userId, 'jellyfinToMyshows', lastForwardRatings, onImport)
+        : { added: 0, skipped: 0, failed: lastForwardRatings.length }
     lastForwardPlan = []
-    return { status: 'ok', result }
+    lastForwardRatings = []
+    return { status: 'ok', result: mergeResults(result, ratingResult) }
   })
 }

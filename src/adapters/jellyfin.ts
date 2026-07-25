@@ -11,7 +11,7 @@ import {
 import { languageToIso } from '../utils/audio-track.js'
 import { percentFromPosition, ticksToMs, ticksToRuntimeMinutes } from './time.js'
 import { fetchWithTimeout } from '../http.js'
-import type { PlayedItem, JellyfinMovie } from '../scrobblers/myshows-sync.js'
+import type { PlayedItem, JellyfinMovie, JellyfinSeries } from '../scrobblers/myshows-sync.js'
 
 // ── Jellyfin / Emby shared API types ──
 
@@ -561,6 +561,7 @@ export class JellyfinAdapter extends BaseAdapter {
           year: it.ProductionYear ?? null,
           imdb: it.ProviderIds?.Imdb ?? null,
           played: it.UserData?.Played === true,
+          rating: it.UserData?.Rating ?? null,
         })
       }
       if (items.length < pageSize) {
@@ -568,6 +569,62 @@ export class JellyfinAdapter extends BaseAdapter {
       }
     }
     return out
+  }
+
+  /**
+   * Every Series in the library with its imdb id and the user's own rating (0–10 or null),
+   * for rating sync. One request (Series list carries per-user UserData). Series without an
+   * imdb ProviderId are skipped — they can't be mapped to MyShows. Read-only.
+   */
+  async fetchAllSeries(userId: string): Promise<JellyfinSeries[]> {
+    const params = new URLSearchParams({
+      Recursive: 'true',
+      IncludeItemTypes: 'Series',
+      Fields: 'ProviderIds,UserData',
+      Limit: '2000',
+    })
+    const url = `${this.config.url}/Users/${encodeURIComponent(userId)}/Items?${params}`
+    const res = await fetchWithTimeout(url, { headers: this.getHeaders() })
+    if (!res.ok) {
+      throw new Error(`Jellyfin series list API error: ${res.status}`)
+    }
+    const body = (await res.json()) as { Items?: JellyfinItem[] }
+    const out: JellyfinSeries[] = []
+    for (const item of body.Items ?? []) {
+      const imdb = item.ProviderIds?.Imdb
+      if (!imdb || !item.Id) {
+        continue
+      }
+      out.push({ itemId: item.Id, imdb, rating: item.UserData?.Rating ?? null })
+    }
+    return out
+  }
+
+  /**
+   * Set (rating 1–10) or clear (null) a user's numeric rating on an item. Set uses
+   * `POST /Users/{uid}/Items/{id}/UserData {Rating}`; clear uses `DELETE .../Rating` (the
+   * UserData endpoint rejects DELETE). Reversible. Returns success.
+   */
+  async setRating(userId: string, itemId: string, rating: number | null): Promise<boolean> {
+    const base = `${this.config.url}/Users/${encodeURIComponent(userId)}/Items/${encodeURIComponent(itemId)}`
+    try {
+      if (rating === null) {
+        const res = await fetchWithTimeout(`${base}/Rating`, {
+          method: 'DELETE',
+          headers: this.getHeaders(),
+        })
+        return res.ok
+      }
+      const res = await fetchWithTimeout(`${base}/UserData`, {
+        method: 'POST',
+        headers: { ...this.getHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ Rating: rating }),
+      })
+      return res.ok
+    } catch (err) {
+      this.log('error', `setRating failed: ${(err as Error).message}`)
+      return false
+    }
   }
 }
 
