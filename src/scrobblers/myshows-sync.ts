@@ -160,6 +160,15 @@ interface ShowWithEpisodes {
 interface ProfileEpisode {
   id: number
 }
+interface CatalogMovie {
+  id: number
+  title: string
+  titleOriginal: string
+  year: number | null
+}
+interface ProfileMovie {
+  watchStatus: string | null
+}
 
 async function searchShow(query: string): Promise<SearchShow[]> {
   return (await rpcWithRefresh<SearchShow[]>('shows.Search', { query })) ?? []
@@ -179,10 +188,43 @@ async function checkEpisode(episodeId: number): Promise<boolean> {
   const res = await rpcWithRefresh<unknown>('manage.CheckEpisode', { id: episodeId })
   return res !== null
 }
+async function searchMovie(query: string): Promise<CatalogMovie[]> {
+  const rows =
+    (await rpcWithRefresh<{ movie: CatalogMovie }[]>('movies.GetCatalog', {
+      search: { query },
+      page: 0,
+      pageSize: 10,
+    })) ?? []
+  return rows.map((r) => r.movie).filter((m): m is CatalogMovie => !!m && typeof m.id === 'number')
+}
+/** true = already marked watched on MyShows, false = not, null = lookup failed. */
+async function isMovieWatched(movieId: number): Promise<boolean | null> {
+  const res = await rpcWithRefresh<ProfileMovie>('profile.Movie', { movieId })
+  if (res === null) {
+    return null
+  }
+  return res.watchStatus !== null
+}
+async function setMovieFinished(movieId: number): Promise<boolean> {
+  // Note: the movie variant takes `movieId` (the episode variant takes `id`); passing `id` here
+  // silently resolves to movieId=0 and 404s.
+  const res = await rpcWithRefresh<unknown>('manage.SetMovieStatus', {
+    movieId,
+    status: 'finished',
+  })
+  return res !== null
+}
 // ── Pure mapping helpers (unit-tested) ───────────────────────────────────────
 
-/** Choose the best MyShows show for a Jellyfin title: prefer an exact year match. */
-export function pickShow(candidates: SearchShow[], year: number | null): SearchShow | null {
+/**
+ * Choose the best MyShows candidate for a Jellyfin title: the sole candidate, else the one whose
+ * year matches exactly. Ambiguous with no year tiebreak → null (don't guess). Shared by shows
+ * and movies since both carry a `year`.
+ */
+export function pickByYear<T extends { year: number | null }>(
+  candidates: T[],
+  year: number | null,
+): T | null {
   if (candidates.length === 0) {
     return null
   }
@@ -195,8 +237,15 @@ export function pickShow(candidates: SearchShow[], year: number | null): SearchS
       return exact
     }
   }
-  // Ambiguous with no year tiebreak: don't guess.
   return null
+}
+
+/** Convenience wrappers so call sites and tests read naturally. */
+export function pickShow(candidates: SearchShow[], year: number | null): SearchShow | null {
+  return pickByYear(candidates, year)
+}
+export function pickMovie(candidates: CatalogMovie[], year: number | null): CatalogMovie | null {
+  return pickByYear(candidates, year)
 }
 
 /** Map (season, episode) to a MyShows episode id from a show's episode list. */
@@ -246,8 +295,9 @@ export async function buildPreview(
 
   const plan: PlanEntry[] = []
   const groups = groupEpisodesByShow(items)
+  const movies = items.filter((i) => i.kind === 'movie')
   let processed = 0
-  const total = groups.size
+  const total = groups.size + movies.length
 
   for (const [, episodes] of groups) {
     processed += 1
@@ -305,14 +355,41 @@ export async function buildPreview(
     }
   }
 
-  // Movies: reported but not resolved in Stage 1 (kept out of writes to avoid wrong matches).
-  for (const movie of items.filter((i) => i.kind === 'movie')) {
+  // Movies: search the catalog, disambiguate by year, diff against the profile's watch status.
+  for (const movie of movies) {
+    processed += 1
+    onProgress?.(processed, total)
+
+    const label = `${movie.title}${movie.year ? ` (${movie.year})` : ''}`
+    const query = movie.originalTitle ?? movie.searchTitle
+    const candidates = await searchMovie(query)
+    const match = pickMovie(candidates, movie.year)
+    if (!match) {
+      plan.push({
+        kind: 'movie',
+        label,
+        targetId: null,
+        status: 'unmatched',
+        reason: candidates.length === 0 ? 'фильм не найден в MyShows' : 'неоднозначное совпадение',
+      })
+      continue
+    }
+    const watched = await isMovieWatched(match.id)
+    if (watched === null) {
+      plan.push({
+        kind: 'movie',
+        label,
+        targetId: null,
+        status: 'unmatched',
+        reason: 'не удалось проверить статус',
+      })
+      continue
+    }
     plan.push({
       kind: 'movie',
-      label: `${movie.title}${movie.year ? ` (${movie.year})` : ''}`,
-      targetId: null,
-      status: 'unmatched',
-      reason: 'импорт фильмов появится позже',
+      label,
+      targetId: match.id,
+      status: watched ? 'already' : 'toAdd',
     })
   }
 
@@ -355,8 +432,10 @@ export async function applyImport(
 
   for (let i = 0; i < toAdd.length; i++) {
     const entry = toAdd[i]
-    // Stage 1 only ever queues episodes (movies are reported unmatched in the preview).
-    const ok = await checkEpisode(entry.targetId as number)
+    const ok =
+      entry.kind === 'episode'
+        ? await checkEpisode(entry.targetId as number)
+        : await setMovieFinished(entry.targetId as number)
     if (ok) {
       added += 1
     } else {

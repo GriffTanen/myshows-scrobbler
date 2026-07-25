@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vite-plus/test'
 import {
   pickShow,
+  pickMovie,
   findEpisodeId,
   groupEpisodesByShow,
   type PlayedItem,
@@ -79,5 +80,27 @@ describe('groupEpisodesByShow', () => {
     const items = [ep({ originalTitle: null, searchTitle: 'Fargo' })]
     const groups = groupEpisodesByShow(items)
     expect(groups.get('fargo')?.length).toBe(1)
+  })
+})
+
+describe('pickMovie', () => {
+  const a = { id: 10, title: 'M', titleOriginal: 'M', year: 2000 }
+  const b = { id: 11, title: 'M', titleOriginal: 'M', year: 2019 }
+
+  it('returns the only candidate', () => {
+    expect(pickMovie([a], null)?.id).toBe(10)
+  })
+
+  it('disambiguates by exact year', () => {
+    expect(pickMovie([a, b], 2019)?.id).toBe(11)
+  })
+
+  it('refuses to guess when ambiguous with no year match', () => {
+    expect(pickMovie([a, b], 1990)).toBeNull()
+    expect(pickMovie([a, b], null)).toBeNull()
+  })
+
+  it('returns null for no candidates', () => {
+    expect(pickMovie([], 2000)).toBeNull()
   })
 })
