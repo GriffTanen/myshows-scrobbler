@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vite-plus/test'
-import { JellyfinAdapter } from '../../src/adapters/jellyfin.js'
+import { JellyfinAdapter, matchesUserFilter } from '../../src/adapters/jellyfin.js'
 import { EmbyAdapter } from '../../src/adapters/emby.js'
 import type { SourceConfig, NormalizedEvent } from '../../src/types.js'
 import type { BaseAdapter } from '../../src/adapters/base.js'
@@ -436,5 +436,76 @@ describe('EmbyAdapter inherits Jellyfin polling', () => {
     expect(emitted[0].source).toBe('emby')
     expect(emitted[0].sessionId).toBe('sess-1:item:item-1')
     expect(emitted[0].action).toBe('progress')
+  })
+})
+
+describe('matchesUserFilter', () => {
+  it('accepts any user when the filter is empty', () => {
+    expect(matchesUserFilter({ id: 'x', title: 'y' }, [])).toBe(true)
+    expect(matchesUserFilter(undefined, [])).toBe(true)
+  })
+
+  it('matches by id (trim + case-insensitive)', () => {
+    expect(matchesUserFilter({ id: 'USER1' }, ['  user1 '])).toBe(true)
+    expect(matchesUserFilter({ id: 'other' }, ['user1'])).toBe(false)
+  })
+
+  it('matches by title (trim + case-insensitive)', () => {
+    expect(matchesUserFilter({ title: ' Griff ' }, ['griff'])).toBe(true)
+  })
+
+  it('drops a session with no user info when a filter is set', () => {
+    expect(matchesUserFilter(undefined, ['user1'])).toBe(false)
+    expect(matchesUserFilter({}, ['user1'])).toBe(false)
+  })
+})
+
+describe('EmbyAdapter applies user_filter (regression)', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('scrobbles only the filtered viewer, dropping other users', async () => {
+    const mine = {
+      ...baseSession,
+      Id: 'sess-mine',
+      UserId: 'me',
+      UserName: 'Me',
+    }
+    const theirs = {
+      ...baseSession,
+      Id: 'sess-theirs',
+      UserId: 'someone-else',
+      UserName: 'Someone Else',
+      NowPlayingItem: { ...baseSession.NowPlayingItem, Id: 'item-2' },
+    }
+
+    const emitted: NormalizedEvent[] = []
+    const config: SourceConfig = { ...makeConfig('emby'), userFilter: ['me'] }
+    const adapter = new EmbyAdapter(config, {
+      onScrobble: async (e) => {
+        emitted.push(e)
+      },
+      onLog: () => {},
+    })
+    ;(adapter as unknown as { running: boolean }).running = true
+
+    vi.stubGlobal(
+      'fetch',
+      routedFetch({
+        '/Sessions': () => sessionsResponse([mine, theirs]),
+        '/Items/item-1': () => itemResponse(baseSession.NowPlayingItem),
+        '/Items/item-2': () => itemResponse(theirs.NowPlayingItem),
+      }),
+    )
+
+    await tick(adapter)
+
+    // Only the filtered-in viewer's session produces a scrobble; the other user is dropped.
+    expect(emitted).toHaveLength(1)
+    expect(emitted[0].sessionId).toBe('sess-mine:item:item-1')
   })
 })
