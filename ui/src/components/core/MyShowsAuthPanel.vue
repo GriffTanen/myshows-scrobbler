@@ -87,6 +87,7 @@ onMounted(refresh)
       <div class="MyShowsAuthPanel__toggle">
         <Toggle
           :model-value="autoConfirm"
+          tone="ok"
           :aria-label="t('myshowsAuth.toggle.label')"
           @update:model-value="emit('update:autoConfirm', $event)"
         />
