@@ -6,6 +6,7 @@ import type {
   ScrobbleEvent,
   SourceErrorCode,
   SourceType,
+  SyncProgress,
 } from '../types'
 
 const MAX = 50
@@ -39,6 +40,7 @@ export function useWebSocket() {
   const logs = ref<PollingLog[]>([])
   const nowPlaying = ref<NowPlayingEntry[]>([])
   const myshowsConfirmations = ref<MyShowsConfirmation[]>([])
+  const syncProgress = ref<SyncProgress | null>(null)
   /** Latest sourceError per source type. Watch this ref to react. */
   const lastSourceError = ref<SourceErrorEvent | null>(null)
 
@@ -100,6 +102,8 @@ export function useWebSocket() {
           nowPlaying.value = data.data as NowPlayingEntry[]
         } else if (data?.type === 'myshowsConfirmation' && data.data) {
           pushCapped(myshowsConfirmations, data.data as MyShowsConfirmation)
+        } else if (data?.type === 'syncProgress' && data.data) {
+          syncProgress.value = data.data as SyncProgress
         } else if (data?.type === 'sourceError' && data.data) {
           const d = data.data as { source: SourceType; error: string; code: SourceErrorCode }
           lastSourceError.value = {
@@ -130,5 +134,13 @@ export function useWebSocket() {
   onMounted(connect)
   onUnmounted(disconnect)
 
-  return { connected, events, logs, nowPlaying, myshowsConfirmations, lastSourceError }
+  return {
+    connected,
+    events,
+    logs,
+    nowPlaying,
+    myshowsConfirmations,
+    syncProgress,
+    lastSourceError,
+  }
 }

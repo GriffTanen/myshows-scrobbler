@@ -203,6 +203,51 @@ export async function fetchMyShowsConfirmations(): Promise<{
   return parseJsonOrThrow<{ confirmations: MyShowsConfirmation[] }>(res)
 }
 
+// ── Watched-history import: Jellyfin -> MyShows (EXPERIMENTAL, Stage 1) ───
+
+export interface SyncPreview {
+  foundMovies: number
+  foundEpisodes: number
+  already: number
+  toAdd: number
+  unmatched: number
+  unmatchedList: { label: string; reason: string }[]
+}
+
+export interface SyncApplyResult {
+  added: number
+  skipped: number
+  failed: number
+}
+
+/** Scan Jellyfin watched history and diff against MyShows. Read-only (no writes). */
+export async function syncPreview(): Promise<{
+  status: string
+  reason?: string
+  preview?: SyncPreview
+}> {
+  const res = await fetch(`${BASE}/api/sync/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  })
+  return parseJsonOrThrow<{ status: string; reason?: string; preview?: SyncPreview }>(res)
+}
+
+/** Apply the previewed import — mark the missing episodes watched on MyShows. */
+export async function syncApply(): Promise<{
+  status: string
+  reason?: string
+  result?: SyncApplyResult
+}> {
+  const res = await fetch(`${BASE}/api/sync/apply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  })
+  return parseJsonOrThrow<{ status: string; reason?: string; result?: SyncApplyResult }>(res)
+}
+
 // ── One-click setup actions ─────────────────────────────────────────────
 
 export interface SetupActionInfo {

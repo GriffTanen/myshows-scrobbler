@@ -26,6 +26,7 @@ const publicExports = new Set([
   'ScrobbleEvent',
   'PollingLog',
   'WsMessage',
+  'SyncProgress',
 ])
 
 function exportedName(node) {

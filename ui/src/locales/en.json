@@ -277,5 +277,40 @@
     },
     "note": "Experimental: uses an unofficial, reverse-engineered myshows.me API. May break without warning if the site changes.",
     "refreshTitle": "Recheck connection status"
+  },
+  "sync": {
+    "title": "Import history to MyShows",
+    "connected": "Connected",
+    "disconnected": "No session",
+    "desc": "Bring your Jellyfin watch history into MyShows — mark everything you've already watched on the server as watched on MyShows. Nothing changes until you confirm.",
+    "needSession": "Connect a MyShows session on the \"MyShows auto-confirm\" panel first — the import needs access to your profile.",
+    "previewNote": "Reads your Jellyfin library and diffs it against your MyShows profile. This is a preview only — nothing is written.",
+    "scanning": "Scanning the Jellyfin library and diffing against MyShows…",
+    "scanningLine": "Matching shows",
+    "found": "Watched in Jellyfin",
+    "movies": "movies",
+    "episodes": "episodes",
+    "already": "Already marked on MyShows",
+    "toAdd": "Will be added",
+    "unmatched": "Couldn't be matched",
+    "showUnmatched": "Show unmatched ({n})",
+    "importing": "Marking on MyShows…",
+    "importingLine": "Adding marks",
+    "doneTitle": "Import complete",
+    "stat": {
+      "added": "Added",
+      "skipped": "Skipped",
+      "failed": "Failed"
+    },
+    "cta": {
+      "preview": "Check what can be imported",
+      "import": "Import {n} marks",
+      "nothing": "Everything is already in sync",
+      "cancel": "Cancel",
+      "again": "Check again"
+    },
+    "error": {
+      "generic": "The operation failed"
+    }
   }
 }

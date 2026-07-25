@@ -9,6 +9,7 @@ import SourcesPanel from './SourcesPanel.vue'
 import SetupPanel from './SetupPanel.vue'
 import EventsPanel from './EventsPanel.vue'
 import MyShowsAuthPanel from './MyShowsAuthPanel.vue'
+import SyncPanel from './SyncPanel.vue'
 
 const TesterPanel = import.meta.env.DEV
   ? defineAsyncComponent(() => import('../ui-only/TesterPanel.vue'))
@@ -540,6 +541,7 @@ function onTokenEdit(value: string) {
             :auto-confirm="config.autoConfirm.value"
             @update:auto-confirm="onAutoConfirmChange"
           />
+          <SyncPanel :progress="wsBus.syncProgress.value" />
         </div>
         <EventsPanel
           :events="wsBus.events.value"

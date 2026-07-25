@@ -66,7 +66,9 @@ export interface AppConfig {
   stopAtThreshold: boolean
   logLevel: LogLevel
   interceptOnly: boolean
-  /** Experimental: auto-approve each scrobble on myshows.me right after STOP. */
+  /** EXPERIMENTAL, unofficial: auto-approve scrobbles in the myshows.me watch-history
+   *  queue instead of requiring a manual click. Requires myshowsRefreshToken to be seeded
+   *  via data/myshows-web-auth.json — see src/scrobblers/myshows-web-auth.ts. */
   autoConfirm: boolean
   sources: SourceConfig[]
 }
@@ -185,11 +187,10 @@ export interface PollingLog {
   repeatCount?: number
 }
 
-export interface MyShowsConfirmation {
-  timestamp: string
-  title: string
-  status: 'confirmed' | 'failed'
-  reason?: string
+export interface SyncProgress {
+  phase: 'scanning' | 'importing'
+  done: number
+  total: number
 }
 
 export type WsMessage =
@@ -198,3 +199,4 @@ export type WsMessage =
   | { type: 'nowPlaying'; data: NowPlayingEntry[] }
   | { type: 'myshowsConfirmation'; data: MyShowsConfirmation }
   | { type: 'sourceError'; data: { source: SourceType; error: string; code: SourceErrorCode } }
+  | { type: 'syncProgress'; data: SyncProgress }
