@@ -356,6 +356,10 @@ function onInterceptOnlyChange(value: boolean) {
   config.patchConfig({ interceptOnly: value }, false)
 }
 
+function onAutoConfirmChange(value: boolean) {
+  config.patchConfig({ autoConfirm: value }, false)
+}
+
 const tokenState = ref<TokenState>('empty')
 const tokenMasked = computed(() => config.myshowsToken.value)
 
@@ -532,7 +536,10 @@ function onTokenEdit(value: string) {
             @emby-sign-in-cancel="onEmbySignInCancel"
             @emby-sign-in-submit="onEmbySignInSubmit"
           />
-          <MyShowsAuthPanel />
+          <MyShowsAuthPanel
+            :auto-confirm="config.autoConfirm.value"
+            @update:auto-confirm="onAutoConfirmChange"
+          />
         </div>
         <EventsPanel
           :events="wsBus.events.value"

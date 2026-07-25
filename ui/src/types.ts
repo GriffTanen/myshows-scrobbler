@@ -66,6 +66,8 @@ export interface AppConfig {
   stopAtThreshold: boolean
   logLevel: LogLevel
   interceptOnly: boolean
+  /** Experimental: auto-approve each scrobble on myshows.me right after STOP. */
+  autoConfirm: boolean
   sources: SourceConfig[]
 }
 

@@ -75,7 +75,12 @@ export async function patchConfig(
   patch: Partial<
     Pick<
       AppConfig,
-      'interceptOnly' | 'scrobblePercent' | 'logLevel' | 'myshowsToken' | 'myshowsUrl'
+      | 'interceptOnly'
+      | 'scrobblePercent'
+      | 'logLevel'
+      | 'myshowsToken'
+      | 'myshowsUrl'
+      | 'autoConfirm'
     >
   >,
 ): Promise<{ status: string; reason?: string }> {

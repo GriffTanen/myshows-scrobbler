@@ -273,6 +273,7 @@ export async function apiRoutes(fastify: FastifyInstance, ctx: ApiContext): Prom
         | 'logLevel'
         | 'myshowsToken'
         | 'myshowsUrl'
+        | 'autoConfirm'
       >
     >
   }>('/api/config', async (request, reply) => {
@@ -300,6 +301,9 @@ export async function apiRoutes(fastify: FastifyInstance, ctx: ApiContext): Prom
     }
     if (body.stopAtThreshold !== undefined) {
       next.stopAtThreshold = !!body.stopAtThreshold
+    }
+    if (body.autoConfirm !== undefined) {
+      next.autoConfirm = !!body.autoConfirm
     }
     if (body.logLevel !== undefined) {
       next.logLevel = body.logLevel

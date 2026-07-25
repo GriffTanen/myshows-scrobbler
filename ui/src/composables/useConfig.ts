@@ -22,6 +22,7 @@ export function useConfig() {
   const sources = ref<SourceConfig[]>([])
   const interceptOnly = ref(false)
   const interceptOnlyLocked = ref(false)
+  const autoConfirm = ref(false)
   const myshowsToken = ref('')
 
   const initialLogs = ref<PollingLog[]>([])
@@ -36,7 +37,10 @@ export function useConfig() {
   > = {}
   let configPatchTimer: ReturnType<typeof setTimeout> | null = null
   let pendingConfigPatch: Partial<
-    Pick<AppConfig, 'interceptOnly' | 'scrobblePercent' | 'logLevel' | 'myshowsToken'>
+    Pick<
+      AppConfig,
+      'interceptOnly' | 'scrobblePercent' | 'logLevel' | 'myshowsToken' | 'autoConfirm'
+    >
   > = {}
 
   async function load() {
@@ -46,6 +50,7 @@ export function useConfig() {
       const cfg = await fetchConfig()
       sources.value = cfg.sources ?? []
       interceptOnly.value = cfg.interceptOnly ?? false
+      autoConfirm.value = cfg.autoConfirm ?? false
       myshowsToken.value = cfg.myshowsToken ?? ''
       interceptOnlyLocked.value = cfg.cliInterceptOnlyLocked ?? false
 
@@ -150,12 +155,18 @@ export function useConfig() {
    */
   function patchConfig(
     patch: Partial<
-      Pick<AppConfig, 'interceptOnly' | 'scrobblePercent' | 'logLevel' | 'myshowsToken'>
+      Pick<
+        AppConfig,
+        'interceptOnly' | 'scrobblePercent' | 'logLevel' | 'myshowsToken' | 'autoConfirm'
+      >
     >,
     debounce = false,
   ) {
     if (patch.interceptOnly !== undefined) {
       interceptOnly.value = !!patch.interceptOnly
+    }
+    if (patch.autoConfirm !== undefined) {
+      autoConfirm.value = !!patch.autoConfirm
     }
     if (patch.myshowsToken !== undefined) {
       myshowsToken.value = patch.myshowsToken
@@ -198,6 +209,7 @@ export function useConfig() {
     sources,
     interceptOnly,
     interceptOnlyLocked,
+    autoConfirm,
     myshowsToken,
     initialLogs,
     loading,

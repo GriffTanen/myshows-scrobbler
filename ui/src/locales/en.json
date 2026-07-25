@@ -258,11 +258,22 @@
       "connected": "Connected",
       "disconnected": "Not connected"
     },
+    "toggle": {
+      "label": "Auto-confirm scrobbles",
+      "on": "On — each scrobble is approved on myshows.me automatically",
+      "off": "Off — scrobbles wait in the “Pending” queue for a manual click"
+    },
+    "hint": {
+      "onNoSession": "Auto-confirm is on, but no session is connected — install the extension and connect below.",
+      "offHasSession": "Session is ready — turn on auto-confirm above to approve scrobbles automatically."
+    },
     "instructionsTitle": "How to connect",
+    "download": "Download extension (.zip)",
     "instructions": {
-      "step1": "1. Install the companion browser extension",
-      "step2": "2. Log in to myshows.me as usual",
-      "step3": "3. Click the extension icon — done"
+      "step1": "Download and unzip the companion browser extension:",
+      "step2": "Open chrome://extensions, enable Developer mode, click “Load unpacked” and pick the unzipped folder.",
+      "step3": "Log in to myshows.me as usual.",
+      "step4": "Click the extension icon and enter this server's address — done."
     },
     "note": "Experimental: uses an unofficial, reverse-engineered myshows.me API. May break without warning if the site changes.",
     "refreshTitle": "Recheck connection status"
