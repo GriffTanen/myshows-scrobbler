@@ -182,6 +182,8 @@ Only sessions whose `UserName` or `UserId` matches an entry are counted (case-in
 ## MyShows auto-confirm (experimental)
 
 > ⚠️ Uses an **unofficial, reverse-engineered** internal myshows.me API (not the same as the public scrobble API above) — there's no support from MyShows for this, and behavior can change or break without warning on any site update. Use at your own risk.
+>
+> If widespread use of this feature causes problems for MyShows.me, it may be removed or disabled in a future version without further notice.
 
 By default, every watched episode or movie lands in the "Pending" queue on myshows.me and needs a manual "Approve" click before it counts as watched. This feature automates that click.
 
