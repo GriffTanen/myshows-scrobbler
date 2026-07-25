@@ -82,6 +82,28 @@ export interface JellyfinSession {
 
 // ── Helpers ──
 
+/**
+ * Hidden per-user filter (config-only `user_filter`). Empty = every viewer counts;
+ * otherwise a session counts only if its `UserId` or `UserName` matches an entry
+ * (trimmed, case-insensitive). A session with no user info is dropped when a filter is set.
+ * Mirrors matchesUserFilter in adapters/plex.ts.
+ */
+export function matchesUserFilter(
+  user: { id?: string; title?: string } | undefined,
+  filter: string[],
+): boolean {
+  const wanted = filter.map((v) => v.trim().toLowerCase()).filter((v) => v.length > 0)
+  if (wanted.length === 0) {
+    return true
+  }
+  if (!user) {
+    return false
+  }
+  const id = user.id?.trim().toLowerCase()
+  const title = user.title?.trim().toLowerCase()
+  return (!!id && wanted.includes(id)) || (!!title && wanted.includes(title))
+}
+
 function normalizeType(type?: string): 'movie' | 'episode' {
   if (type?.toLowerCase() === 'episode') {
     return 'episode'
@@ -283,7 +305,12 @@ export class JellyfinAdapter extends BaseAdapter {
     }
 
     try {
-      const sessions = await this.fetchSessions()
+      // Apply the hidden `user_filter` here (not in fetchSessions) so both the Jellyfin and
+      // the Emby adapter get it from one place — Emby overrides fetchSessions and would
+      // otherwise silently skip the filter.
+      const sessions = (await this.fetchSessions()).filter((s) =>
+        matchesUserFilter({ id: s.UserId, title: s.UserName }, this.config.userFilter),
+      )
       const currentIds = new Set(sessions.map((s) => s.Id))
       const nextPrevious = new Map<string, JellyfinSession>()
 
@@ -347,6 +374,7 @@ export class JellyfinAdapter extends BaseAdapter {
     }
 
     const sessions = (await response.json()) as JellyfinSession[]
+    // `user_filter` is applied in poll() (shared with the Emby adapter), not here.
     return sessions.filter((s) => s.NowPlayingItem && isScrobblableType(s.NowPlayingItem.Type))
   }
 }
