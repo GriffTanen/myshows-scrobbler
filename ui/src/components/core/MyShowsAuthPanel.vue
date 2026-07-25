@@ -50,6 +50,7 @@ onMounted(refresh)
           type="button"
           class="MyShowsAuthPanel__refresh"
           :disabled="checking"
+          :title="t('myshowsAuth.refreshTitle')"
           @click="refresh"
         >
           {{ checking ? '…' : '↻' }}

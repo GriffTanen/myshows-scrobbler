@@ -188,7 +188,7 @@
     },
     "skipped": "skipped (below threshold)",
     "myshows": {
-      "tab": "MyShows",
+      "tab": "Confirmations",
       "confirmed": "confirmed",
       "failed": "failed",
       "empty": "Nothing confirmed yet"
@@ -253,7 +253,7 @@
     "backendUnavailable": "Scrobbler backend is unavailable on port {port}"
   },
   "myshowsAuth": {
-    "title": "MyShows session",
+    "title": "Autoconfirm MyShows",
     "status": {
       "connected": "Connected",
       "disconnected": "Not connected"
@@ -264,6 +264,7 @@
       "step2": "2. Log in to myshows.me as usual",
       "step3": "3. Click the extension icon — done"
     },
-    "note": "Experimental: uses an unofficial, reverse-engineered myshows.me API. May break without warning if the site changes."
+    "note": "Experimental: uses an unofficial, reverse-engineered myshows.me API. May break without warning if the site changes.",
+    "refreshTitle": "Recheck connection status"
   }
 }

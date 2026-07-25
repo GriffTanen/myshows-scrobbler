@@ -191,7 +191,7 @@ function saveBool(key: string, value: boolean) {
 .EventsPanel {
   &__tabs {
     display: inline-flex;
-    gap: 4px;
+    gap: 20px;
   }
 
   &__tab {
