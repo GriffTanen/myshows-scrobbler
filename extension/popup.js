@@ -8,6 +8,7 @@ const COOKIE_NAME = 'msRefreshToken'
 
 const hostInput = document.getElementById('host')
 const statusEl = document.getElementById('status')
+const transportHintEl = document.getElementById('transport-hint')
 const connectBtn = document.getElementById('connect')
 
 function setStatus(text, kind) {
@@ -15,11 +16,39 @@ function setStatus(text, kind) {
   statusEl.className = kind
 }
 
+/** Resolve the entered host to the full endpoint URL (defaulting to http:// on a LAN). */
+function endpointUrl(host) {
+  const base = /^https?:\/\//.test(host) ? host : `http://${host}`
+  return `${base}/api/auth/myshows-bookmarklet`
+}
+
+/**
+ * The refresh token is POSTed in the request body. Over plain http it travels in the clear —
+ * fine on a trusted LAN, worth flagging otherwise. localhost/loopback is always safe.
+ * Shown as a persistent hint under the input (updated as you type), not a flash in the status
+ * line, so the warning is visible *before* connecting rather than overwritten by the result.
+ */
+function updateTransportHint() {
+  const host = hostInput.value.trim().replace(/\/+$/, '')
+  if (!host) {
+    transportHintEl.textContent = ''
+    return
+  }
+  const url = endpointUrl(host)
+  const isSecure = /^https:\/\//.test(url)
+  const isLocal = /^https?:\/\/(localhost|127\.|\[::1\])/.test(url)
+  transportHintEl.textContent =
+    isSecure || isLocal ? '' : '⚠ Токен уйдёт по незашифрованному http — ок для локальной сети.'
+}
+
 chrome.storage.local.get(['serverHost'], (data) => {
   if (data.serverHost) {
     hostInput.value = data.serverHost
+    updateTransportHint()
   }
 })
+
+hostInput.addEventListener('input', updateTransportHint)
 
 connectBtn.addEventListener('click', async () => {
   const host = hostInput.value.trim().replace(/\/+$/, '')
@@ -39,11 +68,7 @@ connectBtn.addEventListener('click', async () => {
       return
     }
 
-    const url = /^https?:\/\//.test(host)
-      ? `${host}/api/auth/myshows-bookmarklet`
-      : `http://${host}/api/auth/myshows-bookmarklet`
-
-    const res = await fetch(url, {
+    const res = await fetch(endpointUrl(host), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refreshToken: cookie.value }),

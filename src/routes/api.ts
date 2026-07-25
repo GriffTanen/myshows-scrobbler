@@ -43,6 +43,7 @@ import {
 import { discoverKodiCredentials } from '../utils/kodi-credentials-discovery.js'
 import { discoverPlexToken } from '../utils/plex-token-discovery.js'
 import { seedRefreshToken, getCurrentRefreshToken } from '../scrobblers/myshows-web-auth.js'
+import { isAsciiToken } from '../utils/validation.js'
 
 interface ApiContext {
   getEvents: () => ScrobbleEvent[]
@@ -726,6 +727,13 @@ export async function apiRoutes(fastify: FastifyInstance, ctx: ApiContext): Prom
       if (!refreshToken) {
         reply.code(400)
         return { error: 'refreshToken required' }
+      }
+      // msRefreshToken is a long opaque ASCII string. Reject obvious garbage (too short,
+      // or non-ASCII from a bad copy/paste) up front so a mistyped value fails loudly here
+      // instead of being stored and then silently breaking auto-confirm later.
+      if (refreshToken.length < 20 || !isAsciiToken(refreshToken)) {
+        reply.code(400)
+        return { error: 'refreshToken does not look like a valid msRefreshToken' }
       }
       seedRefreshToken(refreshToken)
       return { status: 'ok' }

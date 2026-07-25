@@ -38,11 +38,18 @@
       #status.err {
         color: #dc2626;
       }
+      #transport-hint {
+        margin: -4px 0 8px;
+        font-size: 11px;
+        color: #b45309;
+        min-height: 1em;
+      }
     </style>
   </head>
   <body>
     <label for="host">Адрес сервера скробблера</label>
     <input id="host" type="text" placeholder="192.168.1.100:3000" />
+    <div id="transport-hint"></div>
     <button id="connect">Подключить сессию MyShows</button>
     <div id="status"></div>
     <script src="popup.js"></script>
