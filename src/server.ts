@@ -15,6 +15,11 @@ import type { ScrobbleEndpoint } from './scrobblers/myshows.js'
 import { toScrobbleRequest } from './scrobblers/converter.js'
 import { autoConfirmScrobble, type ConfirmTarget } from './scrobblers/myshows-confirm.js'
 import { setWebAuthStatePath } from './scrobblers/myshows-web-auth.js'
+import {
+  setConfirmationStorePath,
+  loadConfirmations,
+  saveConfirmations,
+} from './scrobblers/confirmation-store.js'
 import { BaseAdapter } from './adapters/base.js'
 import { createAdapter, hasAdapter, registerAdapter } from './adapters/registry.js'
 import { PlexAdapter } from './adapters/plex.js'
@@ -137,6 +142,11 @@ export async function createServer(options: ServerOptions) {
   if (options.configPath) {
     setWebAuthStatePath(options.configPath.replace(/config\.json$/, 'myshows-web-auth.json'))
   }
+  if (options.configPath) {
+    setConfirmationStorePath(
+      options.configPath.replace(/config\.json$/, 'myshows-confirmations.json'),
+    )
+  }
 
   const getConfig = (): AppConfig =>
     options.configProvider?.() ?? options.configOverride ?? readConfig()
@@ -156,7 +166,7 @@ export async function createServer(options: ServerOptions) {
 
   const recentEvents: ScrobbleEvent[] = []
   const pollingLogs: PollingLog[] = []
-  const myshowsConfirmations: MyShowsConfirmation[] = []
+  const myshowsConfirmations: MyShowsConfirmation[] = loadConfirmations()
   const wsClients = new Set<import('ws').WebSocket>()
   const adapters = new Map<SourceType, BaseAdapter>()
 
@@ -181,6 +191,7 @@ export async function createServer(options: ServerOptions) {
   function addMyShowsConfirmation(entry: MyShowsConfirmation): void {
     myshowsConfirmations.unshift(entry)
     while (myshowsConfirmations.length > MAX_EVENTS) myshowsConfirmations.pop()
+    saveConfirmations(myshowsConfirmations)
     broadcastWs({ type: 'myshowsConfirmation', data: entry })
   }
 
