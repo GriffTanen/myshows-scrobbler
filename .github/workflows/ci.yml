@@ -1,0 +1,36 @@
+name: CI
+
+# Runs the unit test suite on every push to main and on pull requests, so
+# regressions surface in CI instead of only at local/Docker build time.
+# (The upstream repo only has release.yml, which builds desktop installers on
+# a version tag — it doesn't run the tests.)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run unit tests
+        run: pnpm run test
