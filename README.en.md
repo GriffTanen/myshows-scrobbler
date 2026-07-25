@@ -187,7 +187,7 @@ Only sessions whose `UserName` or `UserId` matches an entry are counted (case-in
 
 By default, every watched episode or movie lands in the "Pending" queue on myshows.me and needs a manual "Approve" click before it counts as watched. This feature automates that click.
 
-Enabled via `auto_confirm: true` in `data/config.json` (defaults to `false` — off):
+Enabled via the **"Auto-confirm scrobbles"** switch on the "MyShows auto-confirm" panel in the web UI (off by default). Or manually via `auto_confirm: true` in `data/config.json`:
 
 ```json
 {
@@ -195,12 +195,14 @@ Enabled via `auto_confirm: true` in `data/config.json` (defaults to `false` — 
 }
 ```
 
+> Changing settings from the web UI requires `data/config.json` to be writable by the container user (UID 1001 in the Docker image). If you bind-mount it with a mismatched owner, grant access: `chmod 666 data/config.json` (same applies to `data/myshows-web-auth.json`).
+
 ### Connecting a session
 
 This feature needs a separate session token from your browser on myshows.me, distinct from `myshows_token`. Since it lives in an httpOnly cookie (invisible to regular page JavaScript), the only way to grab it is the companion browser extension shipped in this repo:
 
-1. Open `chrome://extensions` (or the equivalent in another Chromium browser) and enable **Developer mode**.
-2. **Load unpacked** → point it at the [`extension/`](extension/) folder in this repository.
+1. Download the extension with the **"Download extension (.zip)"** button on the "MyShows auto-confirm" panel in the web UI and unzip it (or grab the [`extension/`](extension/) folder from this repository directly).
+2. Open `chrome://extensions` (or the equivalent in another Chromium browser), enable **Developer mode**, click **Load unpacked** and point it at the unzipped folder.
 3. Open myshows.me and log in as usual.
 4. Click the extension icon, enter your scrobbler server's address (e.g. `192.168.1.100:3000`), click "Connect MyShows session".
 
