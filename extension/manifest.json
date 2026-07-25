@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "Connects your myshows.me session to a self-hosted myshows-scrobbler instance for auto-confirm. Unofficial, experimental.",
   "permissions": ["cookies", "storage"],
-  "host_permissions": ["https://myshows.me/*"],
+  "host_permissions": ["https://myshows.me/*", "http://*/*", "https://*/*"],
   "action": {
     "default_popup": "popup.html"
   }
