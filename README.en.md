@@ -22,7 +22,7 @@
 >
 > - a hidden per-user filter for the **Jellyfin** source (mirrors the existing Plex filter) — see [Filtering Jellyfin users](#filtering-jellyfin-users);
 > - **experimental** auto-approval of pending entries in MyShows.me's scrobble queue, via an undocumented internal site API — see [MyShows auto-confirm (experimental)](#myshows-auto-confirm-experimental). Use at your own risk; it can break without warning if the site changes;
-> - **experimental** import of your Jellyfin watch history into MyShows (movies and episodes) in one action — see [Watch-history import (experimental)](#watch-history-import-experimental).
+> - **experimental** two-way sync of watch history and ratings between Jellyfin and MyShows (movies and shows, both directions) in one action — see [Watch-history import (experimental)](#watch-history-import-experimental).
 >
 > Everything else in this README documents the original project.
 
@@ -225,6 +225,11 @@ The operation is **idempotent**: re-running adds nothing (already-marked items a
 
 The direction switch in the panel also supports the **reverse import: MyShows → Jellyfin** — mark items watched in Jellyfin that you've already watched on MyShows: both shows and movies. Series are matched by IMDb id; movies by title and year with an IMDb cross-check (MyShows exposes no watched-movies list, so the status is checked per movie in your Jellyfin library). The write to Jellyfin is reversible, with the same preview before applying.
 
+### Rating sync
+
+The same run also carries over your **movie and show ratings** (in the chosen direction). The scales differ — MyShows uses 1–5, Jellyfin 0–10 — so a rating is converted automatically (MyShows → Jellyfin is ×2, the other way is halved and rounded). The preview shows separately how many ratings will be brought over.
+
+Ratings that already match on both sides are skipped. When the same title is rated **differently** on each side, that's a **conflict**: it is never overwritten blindly — it's shown in the preview and skipped. Only ratings the receiver doesn't have yet are written. Writing a rating is reversible on either side.
 
 ## Scrobble API
 
