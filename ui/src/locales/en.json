@@ -319,6 +319,11 @@
     "descReverse": "Mark items watched in Jellyfin that you've already watched on MyShows — shows and movies. Nothing changes until you confirm.",
     "foundShows": "{n} shows in your MyShows profile",
     "foundMovieEp": "{m} movies · {e} episodes",
-    "foundShowsMovies": "{s} shows · {m} movies"
+    "foundShowsMovies": "{s} shows · {m} movies",
+    "ratings": {
+      "head": "Ratings (movies & shows)",
+      "toAdd": "Bring over ratings",
+      "conflict": "Differ — skipped"
+    }
   }
 }

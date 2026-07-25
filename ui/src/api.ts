@@ -207,6 +207,14 @@ export async function fetchMyShowsConfirmations(): Promise<{
 
 export type SyncDirection = 'jellyfinToMyshows' | 'myshowsToJellyfin'
 
+/** Rating-sync summary carried in the same preview (movies + shows). */
+export interface RatingSyncSummary {
+  found: number
+  already: number
+  toAdd: number
+  conflict: number
+}
+
 /** Preview summary. Forward has found movies+episodes; reverse has foundShows. */
 export interface SyncPreview {
   foundMovies?: number
@@ -216,6 +224,8 @@ export interface SyncPreview {
   toAdd: number
   unmatched: number
   unmatchedList: { label: string; reason: string }[]
+  /** Ratings brought over in the same run (both directions). */
+  ratings?: RatingSyncSummary
 }
 
 export interface SyncApplyResult {

@@ -99,6 +99,15 @@ function setDirection(d: SyncDirection): void {
   reset()
 }
 
+// Total write actions the apply will perform: watched to-add plus rating to-add.
+const totalToAdd = computed<number>(() => {
+  const p = preview.value
+  if (!p) {
+    return 0
+  }
+  return p.toAdd + (p.ratings?.toAdd ?? 0)
+})
+
 // A short human summary of what the preview found, per direction.
 const foundText = computed<string>(() => {
   const p = preview.value
@@ -213,6 +222,24 @@ onMounted(refreshStatus)
           </div>
         </div>
 
+        <!-- Ratings brought over in the same run -->
+        <div
+          v-if="preview.ratings && (preview.ratings.toAdd > 0 || preview.ratings.conflict > 0)"
+          class="SyncPanel__rows SyncPanel__rows--ratings"
+        >
+          <div class="SyncPanel__ratingsHead">{{ t('sync.ratings.head') }}</div>
+          <div v-if="preview.ratings.toAdd > 0" class="SyncPanel__row SyncPanel__row--add">
+            <span class="SyncPanel__glyph">★</span>
+            <span class="SyncPanel__rowText">{{ t('sync.ratings.toAdd') }}</span>
+            <span class="SyncPanel__num">{{ preview.ratings.toAdd }}</span>
+          </div>
+          <div v-if="preview.ratings.conflict > 0" class="SyncPanel__row SyncPanel__row--warn">
+            <span class="SyncPanel__glyph">≠</span>
+            <span class="SyncPanel__rowText">{{ t('sync.ratings.conflict') }}</span>
+            <span class="SyncPanel__num">{{ preview.ratings.conflict }}</span>
+          </div>
+        </div>
+
         <details
           v-if="preview.unmatchedList.length"
           class="SyncPanel__unmatched"
@@ -233,12 +260,10 @@ onMounted(refreshStatus)
           <button
             type="button"
             class="SyncPanel__btn SyncPanel__btn--primary"
-            :disabled="preview.toAdd === 0"
+            :disabled="totalToAdd === 0"
             @click="runApply"
           >
-            {{
-              preview.toAdd > 0 ? t('sync.cta.import', { n: preview.toAdd }) : t('sync.cta.nothing')
-            }}
+            {{ totalToAdd > 0 ? t('sync.cta.import', { n: totalToAdd }) : t('sync.cta.nothing') }}
           </button>
           <button type="button" class="SyncPanel__btn SyncPanel__btn--ghost" @click="reset">
             {{ t('sync.cta.cancel') }}
@@ -437,6 +462,17 @@ onMounted(refreshStatus)
     flex-direction: column;
     gap: 2px;
     padding: 12px 16px 0;
+
+    &--ratings {
+      padding-top: 8px;
+    }
+  }
+  &__ratingsHead {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--v2-text-dim);
+    padding: 4px 10px 2px;
   }
   &__row {
     display: grid;
