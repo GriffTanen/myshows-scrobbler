@@ -334,12 +334,20 @@ export interface MyShowsConfirmation {
 
 // ── WebSocket message types ──
 
+/** Live progress for the Jellyfin -> MyShows history import (Stage 1). */
+export interface SyncProgress {
+  phase: 'scanning' | 'importing'
+  done: number
+  total: number
+}
+
 export type WsMessage =
   | { type: 'event'; data: ScrobbleEvent }
   | { type: 'log'; data: PollingLog }
   | { type: 'nowPlaying'; data: NowPlayingEntry[] }
   | { type: 'myshowsConfirmation'; data: MyShowsConfirmation }
   | { type: 'sourceError'; data: { source: SourceType; error: string; code: SourceErrorCode } }
+  | { type: 'syncProgress'; data: SyncProgress }
 
 // ── Adapter callback interface ──
 

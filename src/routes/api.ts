@@ -44,6 +44,8 @@ import { discoverKodiCredentials } from '../utils/kodi-credentials-discovery.js'
 import { discoverPlexToken } from '../utils/plex-token-discovery.js'
 import { seedRefreshToken, getCurrentRefreshToken } from '../scrobblers/myshows-web-auth.js'
 import { isAsciiToken } from '../utils/validation.js'
+import { buildPreview, applyImport, type PlanEntry } from '../scrobblers/myshows-sync.js'
+import { JellyfinAdapter } from '../adapters/jellyfin.js'
 
 interface ApiContext {
   getEvents: () => ScrobbleEvent[]
@@ -56,6 +58,8 @@ interface ApiContext {
   myShowsClient: MyShowsClient
   /** True when the process was started with --intercept-only (CLI lock). */
   cliInterceptOnly: boolean
+  /** Broadcast a WS message to all connected UI clients (used for sync progress). */
+  broadcast: (msg: unknown) => void
   /** Electron app-update bridge (absent in headless mode). */
   updates?: UpdateController
 }
@@ -755,5 +759,56 @@ export async function apiRoutes(fastify: FastifyInstance, ctx: ApiContext): Prom
   // in-memory only (same lifetime/cap as recentEvents, doesn't survive a restart).
   fastify.get('/api/auth/myshows-confirmations', async () => {
     return { confirmations: ctx.getMyShowsConfirmations() }
+  })
+
+  // ── Jellyfin -> MyShows history import (Stage 1) ──
+  // preview computes the plan (read-only) and stashes it; apply consumes the stashed plan so
+  // the (potentially large) plan isn't round-tripped through the browser.
+  let lastSyncPlan: PlanEntry[] = []
+
+  function jellyfinAdapter(): JellyfinAdapter | null {
+    const adapter = ctx.adapters.get('jellyfin')
+    return adapter instanceof JellyfinAdapter ? adapter : null
+  }
+
+  // POST /api/sync/preview — scan Jellyfin watched history, map onto MyShows, diff. No writes.
+  fastify.post('/api/sync/preview', async (_req, reply) => {
+    const adapter = jellyfinAdapter()
+    if (!adapter) {
+      reply.code(400)
+      return { status: 'error', reason: 'Jellyfin source is not configured' }
+    }
+    const userId = await adapter.resolveUserId()
+    if (!userId) {
+      reply.code(400)
+      return { status: 'error', reason: 'Could not resolve a Jellyfin user' }
+    }
+    let items
+    try {
+      items = await adapter.fetchPlayedItems(userId)
+    } catch (err) {
+      reply.code(502)
+      return { status: 'error', reason: (err as Error).message }
+    }
+    const preview = await buildPreview(items, (done, total) =>
+      ctx.broadcast({ type: 'syncProgress', data: { phase: 'scanning', done, total } }),
+    )
+    lastSyncPlan = preview.plan
+    // Don't ship the full plan to the client; the summary + unmatched list is enough.
+    const { plan: _plan, ...summary } = preview
+    return { status: 'ok', preview: summary }
+  })
+
+  // POST /api/sync/apply — mark the previewed toAdd episodes as watched on MyShows.
+  fastify.post('/api/sync/apply', async (_req, reply) => {
+    if (lastSyncPlan.length === 0) {
+      reply.code(409)
+      return { status: 'error', reason: 'Run a preview first' }
+    }
+    const result = await applyImport(lastSyncPlan, (done, total) =>
+      ctx.broadcast({ type: 'syncProgress', data: { phase: 'importing', done, total } }),
+    )
+    lastSyncPlan = []
+    return { status: 'ok', result }
   })
 }

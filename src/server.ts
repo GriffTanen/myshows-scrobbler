@@ -564,6 +564,7 @@ export async function createServer(options: ServerOptions) {
     reloadAdapters: initAdapters,
     myShowsClient,
     cliInterceptOnly: options.interceptOnly === true,
+    broadcast: broadcastWs,
     updates: options.updates,
   })
 

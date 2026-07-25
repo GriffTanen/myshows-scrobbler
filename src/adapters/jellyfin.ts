@@ -11,6 +11,7 @@ import {
 import { languageToIso } from '../utils/audio-track.js'
 import { percentFromPosition, ticksToMs, ticksToRuntimeMinutes } from './time.js'
 import { fetchWithTimeout } from '../http.js'
+import type { PlayedItem } from '../scrobblers/myshows-sync.js'
 
 // ── Jellyfin / Emby shared API types ──
 
@@ -376,5 +377,111 @@ export class JellyfinAdapter extends BaseAdapter {
     const sessions = (await response.json()) as JellyfinSession[]
     // `user_filter` is applied in poll() (shared with the Emby adapter), not here.
     return sessions.filter((s) => s.NowPlayingItem && isScrobblableType(s.NowPlayingItem.Type))
+  }
+
+  // ── Watched-history import (Jellyfin -> MyShows sync, Stage 1) ──
+
+  /**
+   * Resolve which Jellyfin user's watch history to import: the first entry of `user_filter`
+   * if set (matched against /Users by id or name), otherwise the first server user. Returns
+   * null if the server has no users or the request fails.
+   */
+  async resolveUserId(): Promise<string | null> {
+    let users: Array<{ Id?: string; Name?: string }>
+    try {
+      const res = await fetchWithTimeout(`${this.config.url}/Users`, { headers: this.getHeaders() })
+      if (!res.ok) {
+        return null
+      }
+      users = (await res.json()) as Array<{ Id?: string; Name?: string }>
+    } catch (err) {
+      this.log('error', `resolveUserId failed: ${(err as Error).message}`)
+      return null
+    }
+    if (users.length === 0) {
+      return null
+    }
+    const wanted = this.config.userFilter.map((v) => v.trim().toLowerCase()).filter(Boolean)
+    if (wanted.length > 0) {
+      const match = users.find(
+        (u) =>
+          (u.Id && wanted.includes(u.Id.toLowerCase())) ||
+          (u.Name && wanted.includes(u.Name.toLowerCase())),
+      )
+      if (match?.Id) {
+        return match.Id
+      }
+    }
+    return users[0].Id ?? null
+  }
+
+  /**
+   * Read everything a user has marked watched (IsPlayed=true), paged, normalized to PlayedItem
+   * for the MyShows mapping. Read-only.
+   */
+  async fetchPlayedItems(userId: string): Promise<PlayedItem[]> {
+    const movies = await this.fetchPlayedOfType(userId, 'Movie')
+    const episodes = await this.fetchPlayedOfType(userId, 'Episode')
+    return [...movies, ...episodes]
+  }
+
+  private async fetchPlayedOfType(
+    userId: string,
+    itemType: 'Movie' | 'Episode',
+  ): Promise<PlayedItem[]> {
+    const pageSize = 200
+    const out: PlayedItem[] = []
+    for (let start = 0; ; start += pageSize) {
+      const params = new URLSearchParams({
+        IsPlayed: 'true',
+        Recursive: 'true',
+        IncludeItemTypes: itemType,
+        Fields: 'ProviderIds,UserData,SeriesName,OriginalTitle,ProductionYear',
+        StartIndex: String(start),
+        Limit: String(pageSize),
+      })
+      const url = `${this.config.url}/Users/${encodeURIComponent(userId)}/Items?${params}`
+      const res = await fetchWithTimeout(url, { headers: this.getHeaders() })
+      if (!res.ok) {
+        throw new Error(`Jellyfin played-items API error: ${res.status}`)
+      }
+      const body = (await res.json()) as { Items?: JellyfinItem[]; TotalRecordCount?: number }
+      const items = body.Items ?? []
+      for (const it of items) {
+        out.push(toPlayedItem(it, itemType))
+      }
+      if (items.length < pageSize) {
+        break
+      }
+    }
+    return out
+  }
+}
+
+function toPlayedItem(item: JellyfinItem, itemType: 'Movie' | 'Episode'): PlayedItem {
+  const ids = item.ProviderIds ?? {}
+  if (itemType === 'Episode') {
+    return {
+      kind: 'episode',
+      title: item.Name ?? '',
+      searchTitle: item.SeriesName ?? '',
+      originalTitle: null,
+      year: item.ProductionYear ?? null,
+      season: item.ParentIndexNumber ?? null,
+      episode: item.IndexNumber ?? null,
+      imdb: ids.Imdb ?? null,
+      tmdb: ids.Tmdb ?? null,
+    }
+  }
+  return {
+    kind: 'movie',
+    title: item.Name ?? '',
+    searchTitle: item.Name ?? '',
+    originalTitle: item.OriginalTitle ?? null,
+    year: item.ProductionYear ?? null,
+    season: null,
+    episode: null,
+    imdb: ids.Imdb ?? null,
+    tmdb: ids.Tmdb ?? null,
   }
 }
