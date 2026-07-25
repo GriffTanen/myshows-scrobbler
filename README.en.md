@@ -18,10 +18,11 @@
 
 ---
 
-> **This is a fork** of [myshowsme/myshows-scrobbler](https://github.com/myshowsme/myshows-scrobbler) with two additions on top of the original:
+> **This is a fork** of [myshowsme/myshows-scrobbler](https://github.com/myshowsme/myshows-scrobbler) with three additions on top of the original:
 >
 > - a hidden per-user filter for the **Jellyfin** source (mirrors the existing Plex filter) — see [Filtering Jellyfin users](#filtering-jellyfin-users);
-> - **experimental** auto-approval of pending entries in MyShows.me's scrobble queue, via an undocumented internal site API — see [MyShows auto-confirm (experimental)](#myshows-auto-confirm-experimental). Use at your own risk; it can break without warning if the site changes.
+> - **experimental** auto-approval of pending entries in MyShows.me's scrobble queue, via an undocumented internal site API — see [MyShows auto-confirm (experimental)](#myshows-auto-confirm-experimental). Use at your own risk; it can break without warning if the site changes;
+> - **experimental** import of your Jellyfin watch history into MyShows (movies and episodes) in one action — see [Watch-history import (experimental)](#watch-history-import-experimental).
 >
 > Everything else in this README documents the original project.
 
@@ -207,6 +208,23 @@ This feature needs a separate session token from your browser on myshows.me, dis
 4. Click the extension icon, enter your scrobbler server's address (e.g. `192.168.1.100:3000`), click "Connect MyShows session".
 
 Connection status and recent confirm attempts show up in the scrobbler's web UI, on the "MyShows auto-confirm" panel and the "Confirmations" tab next to the events feed.
+
+## Watch-history import (experimental)
+
+> ⚠️ Uses the same **unofficial, reverse-engineered** internal myshows.me API as auto-confirm above. Unsupported by MyShows and may change without warning. Use at your own risk.
+
+Brings everything you've already watched in **Jellyfin** — both shows and movies — into MyShows, without marking each episode by hand. Requires a connected MyShows session (see [MyShows auto-confirm](#myshows-auto-confirm-experimental) — same mechanism).
+
+The "MyShows import" panel in the web UI:
+
+1. Click **"Check what can be imported"** — the scrobbler reads your Jellyfin watched items and diffs them against your MyShows profile. This is a preview only; **nothing is written**.
+2. The preview shows how many were found, how many are **already marked** on MyShows, how many **will be added**, and how many **couldn't be matched** (the latter are left untouched and listed).
+3. Click **"Import N marks"** — the missing episodes and movies are marked watched on MyShows.
+
+The operation is **idempotent**: re-running adds nothing (already-marked items are skipped). Shows and movies are matched by title, disambiguated by release year; ambiguous or not-found entries are excluded from the import.
+
+> The import is one-way: **Jellyfin → MyShows**. The reverse direction (MyShows → Jellyfin) is not implemented yet.
+
 
 ## Scrobble API
 
