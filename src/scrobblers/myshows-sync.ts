@@ -169,6 +169,15 @@ interface CatalogMovie {
 interface ProfileMovie {
   watchStatus: string | null
 }
+interface ProfileShow {
+  show: { id: number; title: string; titleOriginal: string }
+}
+interface ShowWithImdb {
+  id: number
+  title: string
+  titleOriginal: string
+  imdbId: number | null
+}
 
 async function searchShow(query: string): Promise<SearchShow[]> {
   return (await rpcWithRefresh<SearchShow[]>('shows.Search', { query })) ?? []
@@ -213,6 +222,28 @@ async function setMovieFinished(movieId: number): Promise<boolean> {
     status: 'finished',
   })
   return res !== null
+}
+
+// ── MyShows read-side (reverse import: MyShows -> Jellyfin) ──
+
+/** The user's shows on MyShows (id + titles). */
+async function getProfileShows(): Promise<{ id: number; title: string; titleOriginal: string }[]> {
+  const list = (await rpcWithRefresh<ProfileShow[]>('profile.Shows', {})) ?? []
+  return list.map((r) => r.show).filter((sh) => !!sh && typeof sh.id === 'number')
+}
+
+/** MyShows show's imdb id as the full `tt…` form, or null when the show has none. */
+async function getShowImdb(showId: number): Promise<string | null> {
+  const show = await rpcWithRefresh<ShowWithImdb>('shows.GetById', { showId, withEpisodes: false })
+  return show?.imdbId != null ? imdbFromMyShows(show.imdbId) : null
+}
+
+/**
+ * MyShows stores the imdb id as a bare number (e.g. 149460 for Futurama); IMDb ids are `tt` +
+ * a zero-padded (min 7) digit string (tt0149460). Longer ids keep their length (tt13443470).
+ */
+export function imdbFromMyShows(id: number): string {
+  return 'tt' + String(id).padStart(7, '0')
 }
 // ── Pure mapping helpers (unit-tested) ───────────────────────────────────────
 
@@ -449,6 +480,140 @@ export async function applyImport(
     warn(`[myshows-sync] Import finished with ${failed} failures (added ${added})`)
   } else {
     info(`[myshows-sync] Import complete: added ${added}, skipped ${skipped}`)
+  }
+  return { added, skipped, failed }
+}
+
+// ── Reverse import: MyShows -> Jellyfin (Stage 2, shows only) ────────────────
+
+/** Narrow view of the Jellyfin adapter the reverse import needs (keeps this module decoupled). */
+export interface JellyfinReverseTarget {
+  resolveUserId(): Promise<string | null>
+  fetchSeriesImdbIndex(userId: string): Promise<Map<string, string>>
+  fetchSeriesEpisodeStates(
+    seriesId: string,
+    userId: string,
+  ): Promise<Map<string, { itemId: string; played: boolean }>>
+  markPlayed(userId: string, itemId: string): Promise<boolean>
+}
+
+/** One reverse unit of work: a Jellyfin episode item to mark played. */
+export interface ReversePlanEntry {
+  label: string
+  targetItemId: string | null
+  status: 'already' | 'toAdd' | 'unmatched'
+  reason?: string
+}
+
+export interface ReversePreview {
+  foundShows: number
+  already: number
+  toAdd: number
+  unmatched: number
+  unmatchedList: { label: string; reason: string }[]
+  plan: ReversePlanEntry[]
+}
+
+/**
+ * Plan the reverse import (no writes): for each MyShows show, find the Jellyfin series by IMDb id,
+ * then for every episode watched on MyShows decide already-played / to-add / unmatched against
+ * Jellyfin's state. Shows/episodes missing from Jellyfin are reported, never guessed.
+ */
+export async function buildReversePreview(
+  jf: JellyfinReverseTarget,
+  userId: string,
+  onProgress?: ProgressFn,
+): Promise<ReversePreview> {
+  const shows = await getProfileShows()
+  const imdbIndex = await jf.fetchSeriesImdbIndex(userId)
+  const plan: ReversePlanEntry[] = []
+  let processed = 0
+  const total = shows.length
+
+  for (const show of shows) {
+    processed += 1
+    onProgress?.(processed, total)
+
+    const imdb = await getShowImdb(show.id)
+    const seriesId = imdb ? imdbIndex.get(imdb.toLowerCase()) : undefined
+    if (!seriesId) {
+      plan.push({
+        label: show.titleOriginal || show.title,
+        targetItemId: null,
+        status: 'unmatched',
+        reason: imdb ? 'сериал не найден в Jellyfin' : 'нет IMDb id у сериала',
+      })
+      continue
+    }
+
+    // (season,episode) pairs watched on MyShows: intersect watched epIds with the episode list.
+    const watchedIds = await getProfileWatchedEpisodeIds(show.id)
+    const episodes = await getShowEpisodes(show.id)
+    const watchedPairs = episodes
+      .filter((e) => watchedIds.has(e.id))
+      .map((e) => `${e.seasonNumber}:${e.episodeNumber}`)
+
+    const jfStates = await jf.fetchSeriesEpisodeStates(seriesId, userId)
+    for (const pair of watchedPairs) {
+      const label = `${show.titleOriginal || show.title} · ${pair.replace(':', 'x')}`
+      const jfEp = jfStates.get(pair)
+      if (!jfEp) {
+        plan.push({
+          label,
+          targetItemId: null,
+          status: 'unmatched',
+          reason: 'эпизода нет в Jellyfin',
+        })
+        continue
+      }
+      plan.push({
+        label,
+        targetItemId: jfEp.itemId,
+        status: jfEp.played ? 'already' : 'toAdd',
+      })
+    }
+  }
+
+  const already = plan.filter((p) => p.status === 'already').length
+  const toAdd = plan.filter((p) => p.status === 'toAdd').length
+  const unmatchedEntries = plan.filter((p) => p.status === 'unmatched')
+  return {
+    foundShows: shows.length,
+    already,
+    toAdd,
+    unmatched: unmatchedEntries.length,
+    unmatchedList: unmatchedEntries.slice(0, 100).map((p) => ({
+      label: p.label,
+      reason: p.reason ?? '',
+    })),
+    plan,
+  }
+}
+
+/** Apply a reverse preview: mark the toAdd episodes played in Jellyfin, one at a time. */
+export async function applyReverse(
+  jf: JellyfinReverseTarget,
+  userId: string,
+  plan: ReversePlanEntry[],
+  onProgress?: ProgressFn,
+): Promise<ApplyResult> {
+  const toAdd = plan.filter((p) => p.status === 'toAdd' && p.targetItemId !== null)
+  let added = 0
+  let failed = 0
+  for (let i = 0; i < toAdd.length; i++) {
+    const ok = await jf.markPlayed(userId, toAdd[i].targetItemId as string)
+    if (ok) {
+      added += 1
+    } else {
+      failed += 1
+    }
+    onProgress?.(i + 1, toAdd.length)
+  }
+  const skipped = plan.filter((p) => p.status !== 'toAdd').length
+  if (failed > 0) {
+    warn(`[myshows-sync] Reverse import finished with ${failed} failures (added ${added})`)
+  } else {
+    info(`[myshows-sync] Reverse import complete: added ${added}, skipped ${skipped}`)
   }
   return { added, skipped, failed }
 }

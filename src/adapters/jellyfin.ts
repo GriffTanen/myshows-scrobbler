@@ -456,6 +456,76 @@ export class JellyfinAdapter extends BaseAdapter {
     }
     return out
   }
+
+  // ── Reverse import (MyShows -> Jellyfin, Stage 2) ──
+
+  /**
+   * Every Series in the library, indexed by lowercased IMDb id (`tt…`) → Jellyfin series id.
+   * Built once and reused: this Jellyfin version's AnyProviderIdEquals filter doesn't actually
+   * filter, so we match on our side. Series without an IMDb ProviderId are skipped (can't map).
+   */
+  async fetchSeriesImdbIndex(userId: string): Promise<Map<string, string>> {
+    const index = new Map<string, string>()
+    const params = new URLSearchParams({
+      Recursive: 'true',
+      IncludeItemTypes: 'Series',
+      Fields: 'ProviderIds',
+      Limit: '2000',
+    })
+    const url = `${this.config.url}/Users/${encodeURIComponent(userId)}/Items?${params}`
+    const res = await fetchWithTimeout(url, { headers: this.getHeaders() })
+    if (!res.ok) {
+      throw new Error(`Jellyfin series list API error: ${res.status}`)
+    }
+    const body = (await res.json()) as { Items?: JellyfinItem[] }
+    for (const item of body.Items ?? []) {
+      const imdb = item.ProviderIds?.Imdb
+      if (imdb && item.Id) {
+        index.set(imdb.toLowerCase(), item.Id)
+      }
+    }
+    return index
+  }
+
+  /**
+   * A series' episodes with their play state, keyed by `season:episode` → { itemId, played }.
+   * Uses /Shows/{id}/Episodes which returns per-user UserData.
+   */
+  async fetchSeriesEpisodeStates(
+    seriesId: string,
+    userId: string,
+  ): Promise<Map<string, { itemId: string; played: boolean }>> {
+    const params = new URLSearchParams({ userId, Fields: 'UserData' })
+    const url = `${this.config.url}/Shows/${encodeURIComponent(seriesId)}/Episodes?${params}`
+    const res = await fetchWithTimeout(url, { headers: this.getHeaders() })
+    if (!res.ok) {
+      throw new Error(`Jellyfin episodes API error: ${res.status}`)
+    }
+    const body = (await res.json()) as { Items?: JellyfinItem[] }
+    const map = new Map<string, { itemId: string; played: boolean }>()
+    for (const ep of body.Items ?? []) {
+      if (ep.ParentIndexNumber == null || ep.IndexNumber == null || !ep.Id) {
+        continue
+      }
+      map.set(`${ep.ParentIndexNumber}:${ep.IndexNumber}`, {
+        itemId: ep.Id,
+        played: ep.UserData?.Played === true,
+      })
+    }
+    return map
+  }
+
+  /** Mark an item (episode) played for a user. Reversible via DELETE. Returns success. */
+  async markPlayed(userId: string, itemId: string): Promise<boolean> {
+    const url = `${this.config.url}/Users/${encodeURIComponent(userId)}/PlayedItems/${encodeURIComponent(itemId)}`
+    try {
+      const res = await fetchWithTimeout(url, { method: 'POST', headers: this.getHeaders() })
+      return res.ok
+    } catch (err) {
+      this.log('error', `markPlayed failed: ${(err as Error).message}`)
+      return false
+    }
+  }
 }
 
 function toPlayedItem(item: JellyfinItem, itemType: 'Movie' | 'Episode'): PlayedItem {

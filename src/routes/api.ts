@@ -44,7 +44,14 @@ import { discoverKodiCredentials } from '../utils/kodi-credentials-discovery.js'
 import { discoverPlexToken } from '../utils/plex-token-discovery.js'
 import { seedRefreshToken, getCurrentRefreshToken } from '../scrobblers/myshows-web-auth.js'
 import { isAsciiToken } from '../utils/validation.js'
-import { buildPreview, applyImport, type PlanEntry } from '../scrobblers/myshows-sync.js'
+import {
+  buildPreview,
+  applyImport,
+  buildReversePreview,
+  applyReverse,
+  type PlanEntry,
+  type ReversePlanEntry,
+} from '../scrobblers/myshows-sync.js'
 import { JellyfinAdapter } from '../adapters/jellyfin.js'
 
 interface ApiContext {
@@ -761,18 +768,25 @@ export async function apiRoutes(fastify: FastifyInstance, ctx: ApiContext): Prom
     return { confirmations: ctx.getMyShowsConfirmations() }
   })
 
-  // ── Jellyfin -> MyShows history import (Stage 1) ──
-  // preview computes the plan (read-only) and stashes it; apply consumes the stashed plan so
-  // the (potentially large) plan isn't round-tripped through the browser.
-  let lastSyncPlan: PlanEntry[] = []
+  // ── Watched-status sync (import history in either direction) ──
+  // preview computes the plan (read-only) and stashes it per direction; apply consumes the
+  // stashed plan so the (potentially large) plan isn't round-tripped through the browser.
+  type SyncDirection = 'jellyfinToMyshows' | 'myshowsToJellyfin'
+  let lastForwardPlan: PlanEntry[] = []
+  let lastReversePlan: ReversePlanEntry[] = []
 
   function jellyfinAdapter(): JellyfinAdapter | null {
     const adapter = ctx.adapters.get('jellyfin')
     return adapter instanceof JellyfinAdapter ? adapter : null
   }
 
-  // POST /api/sync/preview — scan Jellyfin watched history, map onto MyShows, diff. No writes.
-  fastify.post('/api/sync/preview', async (_req, reply) => {
+  function directionOf(body: unknown): SyncDirection {
+    const d = (body as { direction?: string } | undefined)?.direction
+    return d === 'myshowsToJellyfin' ? 'myshowsToJellyfin' : 'jellyfinToMyshows'
+  }
+
+  // POST /api/sync/preview — read-only scan + diff for the requested direction. No writes.
+  fastify.post('/api/sync/preview', async (req, reply) => {
     const adapter = jellyfinAdapter()
     if (!adapter) {
       reply.code(400)
@@ -783,32 +797,55 @@ export async function apiRoutes(fastify: FastifyInstance, ctx: ApiContext): Prom
       reply.code(400)
       return { status: 'error', reason: 'Could not resolve a Jellyfin user' }
     }
-    let items
+
+    const onScan = (done: number, total: number) =>
+      ctx.broadcast({ type: 'syncProgress', data: { phase: 'scanning', done, total } })
+
     try {
-      items = await adapter.fetchPlayedItems(userId)
+      if (directionOf(req.body) === 'myshowsToJellyfin') {
+        const preview = await buildReversePreview(adapter, userId, onScan)
+        lastReversePlan = preview.plan
+        const { plan: _plan, ...summary } = preview
+        return { status: 'ok', direction: 'myshowsToJellyfin', preview: summary }
+      }
+      const items = await adapter.fetchPlayedItems(userId)
+      const preview = await buildPreview(items, onScan)
+      lastForwardPlan = preview.plan
+      const { plan: _plan, ...summary } = preview
+      return { status: 'ok', direction: 'jellyfinToMyshows', preview: summary }
     } catch (err) {
       reply.code(502)
       return { status: 'error', reason: (err as Error).message }
     }
-    const preview = await buildPreview(items, (done, total) =>
-      ctx.broadcast({ type: 'syncProgress', data: { phase: 'scanning', done, total } }),
-    )
-    lastSyncPlan = preview.plan
-    // Don't ship the full plan to the client; the summary + unmatched list is enough.
-    const { plan: _plan, ...summary } = preview
-    return { status: 'ok', preview: summary }
   })
 
-  // POST /api/sync/apply — mark the previewed toAdd episodes as watched on MyShows.
-  fastify.post('/api/sync/apply', async (_req, reply) => {
-    if (lastSyncPlan.length === 0) {
+  // POST /api/sync/apply — apply the stashed plan for the requested direction.
+  fastify.post('/api/sync/apply', async (req, reply) => {
+    const onImport = (done: number, total: number) =>
+      ctx.broadcast({ type: 'syncProgress', data: { phase: 'importing', done, total } })
+
+    if (directionOf(req.body) === 'myshowsToJellyfin') {
+      if (lastReversePlan.length === 0) {
+        reply.code(409)
+        return { status: 'error', reason: 'Run a preview first' }
+      }
+      const adapter = jellyfinAdapter()
+      const userId = adapter ? await adapter.resolveUserId() : null
+      if (!adapter || !userId) {
+        reply.code(400)
+        return { status: 'error', reason: 'Could not resolve a Jellyfin user' }
+      }
+      const result = await applyReverse(adapter, userId, lastReversePlan, onImport)
+      lastReversePlan = []
+      return { status: 'ok', result }
+    }
+
+    if (lastForwardPlan.length === 0) {
       reply.code(409)
       return { status: 'error', reason: 'Run a preview first' }
     }
-    const result = await applyImport(lastSyncPlan, (done, total) =>
-      ctx.broadcast({ type: 'syncProgress', data: { phase: 'importing', done, total } }),
-    )
-    lastSyncPlan = []
+    const result = await applyImport(lastForwardPlan, onImport)
+    lastForwardPlan = []
     return { status: 'ok', result }
   })
 }

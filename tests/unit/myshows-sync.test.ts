@@ -4,6 +4,7 @@ import {
   pickMovie,
   findEpisodeId,
   groupEpisodesByShow,
+  imdbFromMyShows,
   type PlayedItem,
 } from '../../src/scrobblers/myshows-sync.js'
 
@@ -102,5 +103,16 @@ describe('pickMovie', () => {
 
   it('returns null for no candidates', () => {
     expect(pickMovie([], 2000)).toBeNull()
+  })
+})
+
+describe('imdbFromMyShows', () => {
+  it('zero-pads short ids to the tt####### form', () => {
+    expect(imdbFromMyShows(149460)).toBe('tt0149460')
+    expect(imdbFromMyShows(1)).toBe('tt0000001')
+  })
+
+  it('keeps longer ids at their natural length', () => {
+    expect(imdbFromMyShows(13443470)).toBe('tt13443470')
   })
 })
