@@ -1,0 +1,50 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>MyShows Scrobbler — Connect</title>
+    <style>
+      body {
+        font:
+          13px system-ui,
+          sans-serif;
+        width: 260px;
+        padding: 12px;
+      }
+      label {
+        display: block;
+        margin-bottom: 4px;
+        font-weight: 600;
+      }
+      input {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 6px;
+        margin-bottom: 10px;
+      }
+      button {
+        width: 100%;
+        padding: 8px;
+        cursor: pointer;
+      }
+      #status {
+        margin-top: 10px;
+        font-size: 12px;
+        min-height: 1.2em;
+      }
+      #status.ok {
+        color: #16a34a;
+      }
+      #status.err {
+        color: #dc2626;
+      }
+    </style>
+  </head>
+  <body>
+    <label for="host">Адрес сервера скробблера</label>
+    <input id="host" type="text" placeholder="192.168.1.229:3000" />
+    <button id="connect">Подключить сессию MyShows</button>
+    <div id="status"></div>
+    <script src="popup.js"></script>
+  </body>
+</html>

@@ -41,6 +41,7 @@ import {
 } from '../utils/jellyfin-quick-connect.js'
 import { discoverKodiCredentials } from '../utils/kodi-credentials-discovery.js'
 import { discoverPlexToken } from '../utils/plex-token-discovery.js'
+import { seedRefreshToken, getCurrentRefreshToken } from '../scrobblers/myshows-web-auth.js'
 
 interface ApiContext {
   getEvents: () => ScrobbleEvent[]
@@ -702,5 +703,37 @@ export async function apiRoutes(fastify: FastifyInstance, ctx: ApiContext): Prom
   // GET /api/setup/history — audit log, newest first
   fastify.get('/api/setup/history', async () => {
     return { entries: await readAuditEntries(50) }
+  })
+
+  // ── MyShows session handoff (EXPERIMENTAL, auto-confirm) ──────────────
+  // Receives the myshows.me session refresh token from the companion browser
+  // extension (see extension/popup.js), replacing manual DevTools cookie
+  // copy-paste. The request comes from the extension's own privileged
+  // context (popup/service worker), not a myshows.me page script, so its
+  // Origin header is `chrome-extension://<id>` — not myshows.me — and that
+  // id isn't stable for an unpacked/dev-mode install. There is nothing
+  // meaningful to check it against, so this endpoint doesn't attempt an
+  // Origin allowlist; the only thing a hostile caller could do by hitting
+  // it is overwrite the stored refresh token with one of their own (never
+  // read someone else's), and reaching it at all already requires network
+  // access to this server's LAN-only port.
+  fastify.post<{ Body: { refreshToken?: string } }>(
+    '/api/auth/myshows-bookmarklet',
+    async (req, reply) => {
+      const refreshToken = req.body?.refreshToken?.trim()
+      if (!refreshToken) {
+        reply.code(400)
+        return { error: 'refreshToken required' }
+      }
+      seedRefreshToken(refreshToken)
+      return { status: 'ok' }
+    },
+  )
+
+  // GET /api/auth/myshows-status — whether a session token is currently seeded.
+  // Never returns the token itself, only a boolean, so it's safe to poll from
+  // the UI without leaking the secret to the browser.
+  fastify.get('/api/auth/myshows-status', async () => {
+    return { connected: getCurrentRefreshToken() !== null }
   })
 }

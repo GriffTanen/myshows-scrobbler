@@ -182,6 +182,14 @@ export async function checkMyShows(token?: string): Promise<{ ok: boolean; error
   return parseJsonOrThrow<{ ok: boolean; error?: string }>(res)
 }
 
+// ── MyShows session handoff (EXPERIMENTAL, auto-confirm) ─────────────────
+// Whether the companion browser extension has seeded a session refresh
+// token yet. Never exposes the token itself — see server route.
+export async function fetchMyShowsAuthStatus(): Promise<{ connected: boolean }> {
+  const res = await fetch(`${BASE}/api/auth/myshows-status`)
+  return parseJsonOrThrow<{ connected: boolean }>(res)
+}
+
 // ── One-click setup actions ─────────────────────────────────────────────
 
 export interface SetupActionInfo {

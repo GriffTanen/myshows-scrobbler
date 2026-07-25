@@ -245,5 +245,19 @@
   },
   "errors": {
     "backendUnavailable": "Scrobbler backend is unavailable on port {port}"
+  },
+  "myshowsAuth": {
+    "title": "MyShows session (auto-confirm)",
+    "subtitle": "Connect your myshows.me session so watched episodes are approved automatically",
+    "status": {
+      "connected": "Connected",
+      "disconnected": "Not connected"
+    },
+    "instructions": {
+      "step1": "1. Install the companion browser extension",
+      "step2": "2. Log in to myshows.me as usual",
+      "step3": "3. Click the extension icon — done"
+    },
+    "note": "Experimental: uses an unofficial, reverse-engineered myshows.me API. May break without warning if the site changes."
   }
 }

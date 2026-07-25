@@ -8,6 +8,7 @@ import SetupHint from './SetupHint.vue'
 import SourcesPanel from './SourcesPanel.vue'
 import SetupPanel from './SetupPanel.vue'
 import EventsPanel from './EventsPanel.vue'
+import MyShowsAuthPanel from './MyShowsAuthPanel.vue'
 
 const TesterPanel = import.meta.env.DEV
   ? defineAsyncComponent(() => import('../ui-only/TesterPanel.vue'))
@@ -534,6 +535,8 @@ function onTokenEdit(value: string) {
       </div>
 
       <SetupPanel @source-toggle="onSetupSourceToggle" />
+
+      <MyShowsAuthPanel />
 
       <component :is="TesterPanel" v-if="TesterPanel" />
     </main>
