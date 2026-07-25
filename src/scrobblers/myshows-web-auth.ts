@@ -12,6 +12,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fetchWithTimeout } from '../http.js'
 import { info, warn, error as logError } from '../logger.js'
+import { resolveNuxtRef } from './nuxt-devalue.js'
 
 const WATCH_HISTORY_URL = 'https://myshows.me/profile/watch-history/'
 
@@ -115,28 +116,6 @@ function extractAuthToken(html: string): string | null {
       `[myshows-web-auth] Resolved auth.token index ${targetIndex} is not a string (got ${typeof value}: ${JSON.stringify(value)})`,
     )
     return null
-  }
-  return value
-}
-
-/**
- * Nuxt/Vue's devalue-style payload wraps reactive values as `["Ref", N]` /
- * `["ShallowReactive", N]` / `["EmptyRef", N]` tuples pointing at another array index holding
- * the actual value, which can itself be another wrapper. Unwrap up to a handful of hops
- * before giving up — a real payload never nests this deep, so a low cap just prevents an
- * infinite loop on a malformed/cyclic array without needing cycle-tracking.
- */
-function resolveNuxtRef(data: unknown[], value: unknown, depth: number): unknown {
-  if (depth > 5) {
-    return value
-  }
-  if (
-    Array.isArray(value) &&
-    value.length === 2 &&
-    typeof value[0] === 'string' &&
-    typeof value[1] === 'number'
-  ) {
-    return resolveNuxtRef(data, data[value[1]], depth + 1)
   }
   return value
 }

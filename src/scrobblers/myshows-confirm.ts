@@ -21,6 +21,7 @@ import {
   getCurrentRefreshToken,
   refreshSessionAuthToken,
 } from './myshows-web-auth.js'
+import { resolveNuxtRef } from './nuxt-devalue.js'
 
 const RPC_URL = 'https://myshows.me/v3/rpc/'
 const WATCH_HISTORY_URL = 'https://myshows.me/profile/watch-history/'
@@ -43,28 +44,6 @@ export interface ConfirmTarget {
   showOriginalTitle: string | null
   season: number | null
   episode: number | null
-}
-
-/**
- * Nuxt/Vue's devalue-style payload wraps reactive values as `["Ref", N]` /
- * `["ShallowReactive", N]` / `["EmptyRef", N]` tuples pointing at another array index holding
- * the actual value, which can itself be another wrapper. Unwrap up to a handful of hops
- * before giving up — a real payload never nests this deep, so a low cap just prevents an
- * infinite loop on a malformed/cyclic array without needing cycle-tracking.
- */
-function resolveNuxtRef(data: unknown[], value: unknown, depth: number): unknown {
-  if (depth > 5) {
-    return value
-  }
-  if (
-    Array.isArray(value) &&
-    value.length === 2 &&
-    typeof value[0] === 'string' &&
-    typeof value[1] === 'number'
-  ) {
-    return resolveNuxtRef(data, data[value[1]], depth + 1)
-  }
-  return value
 }
 
 /**
@@ -251,15 +230,26 @@ function sleep(ms: number): Promise<void> {
 // lookup) with a growing backoff over ~2 minutes total before giving up.
 const CONFIRM_RETRY_DELAYS_MS = [2000, 3000, 5000, 8000, 13000, 21000, 34000]
 
-/** Result of one find-then-confirm attempt, distinguishing retryable from terminal failure. */
-type AttemptResult = 'confirmed' | 'not_found_yet' | 'give_up'
+/**
+ * Result of one confirm attempt:
+ * - 'confirmed': scrobble.SetStatus accepted the scrobbleId.
+ * - 'not_found_yet': no matching entry in watch-history at all — next retry needs a fresh
+ *   full lookup (attemptConfirm).
+ * - 'pending_confirm': a matching entry WAS found (scrobbleId known), but SetStatus rejected
+ *   it as not found (replication lag) — next retry only needs retryConfirm on this id, not
+ *   another watch-history fetch+parse.
+ * - 'give_up': terminal failure (auth refresh exhausted).
+ */
+type AttemptResult =
+  | { kind: 'confirmed' }
+  | { kind: 'not_found_yet' }
+  | { kind: 'pending_confirm'; scrobbleId: number }
+  | { kind: 'give_up' }
 
 /**
  * One find-then-confirm pass: look up the pending entry, then call scrobble.SetStatus on it.
- * Returns 'not_found_yet' both when no matching entry exists yet in watch-history, and when
- * SetStatus rejects a freshly-found scrobbleId as not found (replication lag between the two
- * — see CONFIRM_RETRY_DELAYS_MS) — both cases are worth retrying. Auth failures refresh the
- * session token once inline and retry immediately (not worth a backoff, it's not a lag issue).
+ * Auth failures refresh the session token once inline and retry immediately (not worth a
+ * backoff, it's not a lag issue).
  */
 async function attemptConfirm(
   authToken: string,
@@ -271,32 +261,45 @@ async function attemptConfirm(
     const newAuthToken = await refreshSessionAuthToken()
     const newRefreshToken = getCurrentRefreshToken()
     if (!newAuthToken || !newRefreshToken) {
-      return 'give_up'
+      return { kind: 'give_up' }
     }
     entries = await fetchPendingEntries(newAuthToken, newRefreshToken)
     if (entries === null) {
       logError('[myshows-confirm] watch-history fetch failed even after refreshing the session')
-      return 'give_up'
+      return { kind: 'give_up' }
     }
     authToken = newAuthToken
   }
 
   const match = findMatch(entries, target)
   if (!match) {
-    return 'not_found_yet'
+    return { kind: 'not_found_yet' }
   }
   info(`[myshows-confirm] Matched scrobbleId=${match.scrobbleId} for confirmation`)
 
-  let outcome = await callSetStatus(authToken, match.scrobbleId)
+  return confirmScrobbleId(authToken, match.scrobbleId)
+}
+
+/**
+ * Retry pass for an already-known scrobbleId (replication lag case): calls scrobble.SetStatus
+ * directly, skipping the watch-history fetch+parse that attemptConfirm needs to discover the
+ * id in the first place. Auth failures refresh and retry once, same as attemptConfirm.
+ */
+async function retryConfirm(authToken: string, scrobbleId: number): Promise<AttemptResult> {
+  return confirmScrobbleId(authToken, scrobbleId)
+}
+
+async function confirmScrobbleId(authToken: string, scrobbleId: number): Promise<AttemptResult> {
+  let outcome = await callSetStatus(authToken, scrobbleId)
   if (!outcome.ok && outcome.reason === 'auth') {
     const newAuthToken = await refreshSessionAuthToken()
     if (!newAuthToken) {
-      return 'give_up'
+      return { kind: 'give_up' }
     }
-    outcome = await callSetStatus(newAuthToken, match.scrobbleId)
+    outcome = await callSetStatus(newAuthToken, scrobbleId)
   }
 
-  return outcome.ok ? 'confirmed' : 'not_found_yet'
+  return outcome.ok ? { kind: 'confirmed' } : { kind: 'pending_confirm', scrobbleId }
 }
 
 /**
@@ -305,11 +308,15 @@ async function attemptConfirm(
  * Failures are logged and swallowed — this must never affect the primary scrobble flow
  * (the /stop call already succeeded; this is a bonus convenience layered on top).
  *
- * Retries the whole find-then-confirm pass with a backoff, since MyShows' own replication
- * lag (see CONFIRM_RETRY_DELAYS_MS) means a freshly-found, correct scrobbleId can still be
- * rejected as not-found for the first several seconds after /stop.
+ * Retries with a backoff, since MyShows' own replication lag (see CONFIRM_RETRY_DELAYS_MS)
+ * means a freshly-found, correct scrobbleId can still be rejected as not-found for the first
+ * several seconds after /stop. Once a scrobbleId has been matched once, subsequent retries
+ * only re-call scrobble.SetStatus on that id (retryConfirm) instead of re-fetching and
+ * re-parsing the whole watch-history page on every attempt.
  */
 export async function autoConfirmScrobble(target: ConfirmTarget, logLabel: string): Promise<void> {
+  let knownScrobbleId: number | null = null
+
   for (let attempt = 0; ; attempt++) {
     // Re-read on every attempt: a prior attempt may have rotated the refresh token or cached
     // a new access token, and the next attempt must use those, not a stale closed-over copy.
@@ -319,13 +326,20 @@ export async function autoConfirmScrobble(target: ConfirmTarget, logLabel: strin
       return
     }
 
-    const result = await attemptConfirm(authToken, refreshToken, target)
-    if (result === 'confirmed') {
+    const result =
+      knownScrobbleId !== null
+        ? await retryConfirm(authToken, knownScrobbleId)
+        : await attemptConfirm(authToken, refreshToken, target)
+
+    if (result.kind === 'confirmed') {
       info(`[myshows-confirm] Auto-confirmed: ${logLabel}`)
       return
     }
-    if (result === 'give_up' || attempt >= CONFIRM_RETRY_DELAYS_MS.length) {
-      if (result === 'not_found_yet') {
+    if (result.kind === 'pending_confirm') {
+      knownScrobbleId = result.scrobbleId
+    }
+    if (result.kind === 'give_up' || attempt >= CONFIRM_RETRY_DELAYS_MS.length) {
+      if (result.kind === 'not_found_yet' || result.kind === 'pending_confirm') {
         warn(`[myshows-confirm] Gave up confirming "${logLabel}" after ${attempt + 1} attempts`)
       }
       return
