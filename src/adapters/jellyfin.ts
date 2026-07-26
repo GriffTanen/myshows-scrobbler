@@ -12,6 +12,7 @@ import { languageToIso } from '../utils/audio-track.js'
 import { percentFromPosition, ticksToMs, ticksToRuntimeMinutes } from './time.js'
 import { fetchWithTimeout } from '../http.js'
 import type { PlayedItem, JellyfinMovie, JellyfinSeries } from '../scrobblers/myshows-sync.js'
+import { applyUserFilter, type FilterableUser } from './user-filter.js'
 
 // ── Jellyfin / Emby shared API types ──
 
@@ -83,28 +84,6 @@ export interface JellyfinSession {
 
 // ── Helpers ──
 
-/**
- * Hidden per-user filter (config-only `user_filter`). Empty = every viewer counts;
- * otherwise a session counts only if its `UserId` or `UserName` matches an entry
- * (trimmed, case-insensitive). A session with no user info is dropped when a filter is set.
- * Mirrors matchesUserFilter in adapters/plex.ts.
- */
-export function matchesUserFilter(
-  user: { id?: string; title?: string } | undefined,
-  filter: string[],
-): boolean {
-  const wanted = filter.map((v) => v.trim().toLowerCase()).filter((v) => v.length > 0)
-  if (wanted.length === 0) {
-    return true
-  }
-  if (!user) {
-    return false
-  }
-  const id = user.id?.trim().toLowerCase()
-  const title = user.title?.trim().toLowerCase()
-  return (!!id && wanted.includes(id)) || (!!title && wanted.includes(title))
-}
-
 function normalizeType(type?: string): 'movie' | 'episode' {
   if (type?.toLowerCase() === 'episode') {
     return 'episode'
@@ -114,6 +93,14 @@ function normalizeType(type?: string): 'movie' | 'episode' {
 
 function stateFromSession(session: JellyfinSession): PlaybackState {
   return session.PlayState?.IsPaused ? 'paused' : 'playing'
+}
+
+/**
+ * Map a Jellyfin/Emby session onto the shape the hidden `user_filter` matches:
+ * the server reports the viewer as `UserId` + `UserName` rather than a nested object.
+ */
+function sessionUser(session: JellyfinSession): FilterableUser {
+  return { id: session.UserId, name: session.UserName }
 }
 
 function buildSessionId(session: JellyfinSession, item: JellyfinItem): string {
@@ -306,12 +293,8 @@ export class JellyfinAdapter extends BaseAdapter {
     }
 
     try {
-      // Apply the hidden `user_filter` here (not in fetchSessions) so both the Jellyfin and
-      // the Emby adapter get it from one place — Emby overrides fetchSessions and would
-      // otherwise silently skip the filter.
-      const sessions = (await this.fetchSessions()).filter((s) =>
-        matchesUserFilter({ id: s.UserId, title: s.UserName }, this.config.userFilter),
-      )
+      // `user_filter` is applied inside fetchSessions() (via scrobblableSessions), shared with Emby.
+      const sessions = await this.fetchSessions()
       const currentIds = new Set(sessions.map((s) => s.Id))
       const nextPrevious = new Map<string, JellyfinSession>()
 
@@ -366,17 +349,45 @@ export class JellyfinAdapter extends BaseAdapter {
     }
   }
 
-  protected async fetchSessions(): Promise<JellyfinSession[]> {
-    const url = `${this.config.url}/Sessions`
-    const response = await fetchWithTimeout(url, { headers: this.getHeaders() })
+  /** The sessions endpoint. Emby narrows it to recently-active clients. */
+  protected sessionsUrl(): string {
+    return `${this.config.url}/Sessions`
+  }
+
+  /**
+   * `private` on purpose: subclasses vary the endpoint through `sessionsUrl()`, and the
+   * compiler now refuses an override here, so the hidden `user_filter` cannot be skipped.
+   */
+  private async fetchSessions(): Promise<JellyfinSession[]> {
+    const response = await fetchWithTimeout(this.sessionsUrl(), { headers: this.getHeaders() })
 
     if (!response.ok) {
-      throw new Error(`API error: ${response.status}`)
+      throw new Error(`${this.name} API error: ${response.status}`)
     }
 
     const sessions = (await response.json()) as JellyfinSession[]
-    // `user_filter` is applied in poll() (shared with the Emby adapter), not here.
-    return sessions.filter((s) => s.NowPlayingItem && isScrobblableType(s.NowPlayingItem.Type))
+    return this.scrobblableSessions(sessions)
+  }
+
+  /**
+   * Sessions worth scrobbling: a playing video item, watched by a viewer the
+   * hidden `user_filter` (config-only) admits.
+   */
+  private scrobblableSessions(sessions: JellyfinSession[]): JellyfinSession[] {
+    const playing = sessions.filter(
+      (s) => s.NowPlayingItem && isScrobblableType(s.NowPlayingItem.Type),
+    )
+
+    const { admitted, droppedMessage } = applyUserFilter(
+      playing,
+      sessionUser,
+      this.config.userFilter,
+    )
+    if (droppedMessage) {
+      this.log('debug', droppedMessage)
+    }
+
+    return admitted
   }
 
   // ── Watched-history import (Jellyfin -> MyShows sync, Stage 1) ──

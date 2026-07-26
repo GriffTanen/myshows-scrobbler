@@ -7,6 +7,7 @@ import { languageToIso } from '../utils/audio-track.js'
 import { msToRuntimeMinutes, percentFromPosition } from './time.js'
 import { fetchWithTimeout } from '../http.js'
 import { normalizeBaseUrl } from '../utils/url.js'
+import { applyUserFilter, type FilterableUser } from './user-filter.js'
 
 // ── Plex API response types ──
 
@@ -115,24 +116,11 @@ function normalizeState(raw: string | undefined): PlaybackState {
 }
 
 /**
- * Hidden per-user filter (config-only `user_filter`). Empty = every viewer counts;
- * otherwise a session counts only if its `User.id` or `User.title` matches an entry
- * (trimmed, case-insensitive). A session with no `User` is dropped when a filter is set.
+ * Map a Plex session onto the shape the hidden `user_filter` matches: Plex reports
+ * the viewer as a nested `User` object with a `title` for the display name.
  */
-export function matchesUserFilter(
-  user: { id?: string; title?: string } | undefined,
-  filter: string[],
-): boolean {
-  const wanted = filter.map((v) => v.trim().toLowerCase()).filter((v) => v.length > 0)
-  if (wanted.length === 0) {
-    return true
-  }
-  if (!user) {
-    return false
-  }
-  const id = user.id?.trim().toLowerCase()
-  const title = user.title?.trim().toLowerCase()
-  return (!!id && wanted.includes(id)) || (!!title && wanted.includes(title))
+function sessionUser(session: PlexSession): FilterableUser {
+  return { id: session.User?.id, name: session.User?.title }
 }
 
 function extractHdr(streams: PlexStream[] | undefined): string | null {
@@ -505,14 +493,22 @@ export class PlexAdapter extends BaseAdapter {
     // MyShows tracks shows/movies only. Plex `/status/sessions` also surfaces
     // music (`track`), trailers/extras (`clip`) and photos — drop anything that
     // isn't a movie or episode so a played track never scrobbles as an episode.
+    const playing = sessions.filter((s) => isScrobblableType((s as { type?: string }).type))
+
     // Hidden `user_filter` (config-only) additionally restricts to specific viewers.
-    return sessions
-      .filter((s) => isScrobblableType((s as { type?: string }).type))
-      .filter((s) => matchesUserFilter(s.User, this.config.userFilter))
-      .map((s) => ({
-        ...s,
-        ratingKey: s.ratingKey || s.key?.split('/').pop() || '',
-      }))
+    const { admitted, droppedMessage } = applyUserFilter(
+      playing,
+      sessionUser,
+      this.config.userFilter,
+    )
+    if (droppedMessage) {
+      this.log('debug', droppedMessage)
+    }
+
+    return admitted.map((s) => ({
+      ...s,
+      ratingKey: s.ratingKey || s.key?.split('/').pop() || '',
+    }))
   }
 
   private async fetchMetadataWithRating(ratingKey: string): Promise<{

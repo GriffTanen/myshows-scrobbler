@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vite-plus/test'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vite-plus/test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -157,6 +157,73 @@ describe('readConfig / writeConfig', () => {
     expect(cfg.sources[0].pollInterval).toBe(15000)
   })
 
+  /** Write a config whose single Plex source carries the given raw `user_filter`. */
+  function writeRawUserFilter(userFilter: unknown): void {
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        myshows_token: 'tok',
+        myshows_url: 'https://example.test/api',
+        scrobble_percent: 80,
+        log_level: 'info',
+        sources: [
+          {
+            type: 'plex',
+            enabled: true,
+            url: 'http://plex:32400',
+            token: 'x',
+            poll_interval: 5000,
+            user_filter: userFilter,
+          },
+        ],
+      }),
+    )
+  }
+
+  it('reads a bare-string user_filter as a single entry instead of counting everyone', () => {
+    const warned = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    writeRawUserFilter('Alice')
+
+    const cfg = readConfig()
+
+    expect(cfg.sources[0].userFilter).toEqual(['Alice'])
+    expect(warned.mock.calls.flat().join(' ')).toContain('"user_filter" of source "plex"')
+    warned.mockRestore()
+  })
+
+  it('warns and counts everyone when user_filter is neither a string nor an array', () => {
+    const warned = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    writeRawUserFilter({ name: 'Alice' })
+
+    const cfg = readConfig()
+
+    expect(cfg.sources[0].userFilter).toEqual([])
+    expect(warned.mock.calls.flat().join(' ')).toContain('every viewer will be counted')
+    warned.mockRestore()
+  })
+
+  it('drops non-string entries from a user_filter array, keeping the strings', () => {
+    const warned = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    writeRawUserFilter(['alice', 42, null, 'bob', { id: 1 }])
+
+    const cfg = readConfig()
+
+    expect(cfg.sources[0].userFilter).toEqual(['alice', 'bob'])
+    expect(warned.mock.calls.flat().join(' ')).toContain('Dropped 3 non-string entries')
+    warned.mockRestore()
+  })
+
+  it('keeps a valid user_filter without warning', () => {
+    const warned = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    writeRawUserFilter(['alice'])
+
+    const cfg = readConfig()
+
+    expect(cfg.sources[0].userFilter).toEqual(['alice'])
+    expect(warned).not.toHaveBeenCalled()
+    warned.mockRestore()
+  })
+
   it('migrates a v1 flat Plex-only config to v2 sources array', () => {
     fs.writeFileSync(
       configPath,
@@ -185,5 +252,27 @@ describe('readConfig / writeConfig', () => {
     const persisted = JSON.parse(fs.readFileSync(configPath, 'utf8'))
     expect(persisted.sources).toBeDefined()
     expect(persisted.sources[0].url).toBe('http://plex:32400')
+  })
+
+  it('applies the same user_filter coercion to the legacy plex_user_filter', () => {
+    const warned = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        myshows_token: 'legacy_tok',
+        plex_url: 'http://plex:32400',
+        plex_token: 'plex_tok',
+        plex_user_filter: 'Alice',
+        scrobble_percent: 85,
+        poll_interval: 2500,
+        log_level: 'info',
+      }),
+    )
+
+    const cfg = readConfig()
+
+    expect(cfg.sources[0].userFilter).toEqual(['Alice'])
+    expect(warned.mock.calls.flat().join(' ')).toContain('legacy "plex_user_filter"')
+    warned.mockRestore()
   })
 })

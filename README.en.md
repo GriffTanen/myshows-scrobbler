@@ -18,9 +18,8 @@
 
 ---
 
-> **This is a fork** of [myshowsme/myshows-scrobbler](https://github.com/myshowsme/myshows-scrobbler) with three additions on top of the original:
+> **This is a fork** of [myshowsme/myshows-scrobbler](https://github.com/myshowsme/myshows-scrobbler) with two additions on top of the original:
 >
-> - a hidden per-user filter for the **Jellyfin** source (mirrors the existing Plex filter) — see [Filtering Jellyfin users](#filtering-jellyfin-users);
 > - **experimental** auto-approval of pending entries in MyShows.me's scrobble queue, via an undocumented internal site API — see [MyShows auto-confirm (experimental)](#myshows-auto-confirm-experimental). Use at your own risk; it can break without warning if the site changes;
 > - **experimental** two-way sync of watch history and ratings between Jellyfin and MyShows (movies and shows, both directions) in one action — see [Watch-history import (experimental)](#watch-history-import-experimental).
 >
@@ -150,35 +149,33 @@ Everything is configurable from the UI, or by hand in `data/config.json`:
 - `scrobble_percent`: the "watched" threshold, in percent.
 - `poll_interval`: source polling period, ms.
 
-### Filtering Plex users
+### Filtering users
 
-On a shared Plex server, sessions from every user get scrobbled. To count only your own playback, add a `user_filter` to the `plex` source — a list of Plex usernames or user IDs. There is no UI field for it; set it by hand in `data/config.json`:
+On a shared Plex, Emby or Jellyfin server, sessions from every user get scrobbled. To count only your own playback, add a `user_filter` to the source — a list of usernames or user IDs. There is no UI field for it; set it by hand in `data/config.json`:
 
 ```json
 {
   "type": "plex",
   "url": "http://localhost:32400",
   "token": "plex_x_token",
-  "user_filter": ["UserName"]
+  "user_filter": ["username"]
 }
 ```
 
-Only sessions whose username (`User.title`) or ID (`User.id`) matches an entry are counted. Matching is case-insensitive and trims surrounding whitespace. An empty or omitted `user_filter` counts every viewer.
-
-### Filtering Jellyfin users
-
-Same idea for the `jellyfin` source (in this fork; upstream only filters Plex) — on a shared Jellyfin server, every user's playback gets scrobbled, not just yours. The `user_filter` field is also set by hand only, in `data/config.json`; there's no UI field for it:
+The same for Emby or Jellyfin:
 
 ```json
 {
-  "type": "jellyfin",
+  "type": "emby",
   "url": "http://localhost:8096",
-  "token": "jellyfin_api_key",
-  "user_filter": ["UserName"]
+  "token": "emby_api_key",
+  "user_filter": ["username"]
 }
 ```
 
-Only sessions whose `UserName` or `UserId` matches an entry are counted (case-insensitive, trims whitespace). An empty or omitted `user_filter` counts every viewer. **Limitation**: `EmbyAdapter` extends the Jellyfin adapter's code but overrides session fetching with its own copy that doesn't call the filter — `user_filter` currently has no effect on the `emby` source.
+Only sessions whose username or ID matches an entry are counted — `User.title` and `User.id` on Plex, `UserName` and `UserId` on Emby and Jellyfin. Case and surrounding whitespace don't matter.
+Without a `user_filter`, every viewer counts.
+Sessions the filter turns away are named in the `debug` log.
 
 ## MyShows auto-confirm (experimental)
 
