@@ -414,8 +414,9 @@ onMounted(refreshStatus)
     color: var(--v2-text-muted);
     transition: all 0.14s;
 
-    &:hover {
-      color: var(--v2-text);
+    &:hover:not(.SyncPanel__dir--active) {
+      color: var(--v2-brand, #e11d48);
+      border-color: color-mix(in srgb, var(--v2-brand, #e11d48) 40%, var(--v2-border, #d4d8df));
     }
     &--active {
       background: var(--v2-brand, #e11d48);
