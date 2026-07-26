@@ -139,10 +139,11 @@ describe('imdbMatches', () => {
 })
 
 describe('myshowsToJellyfinRating', () => {
-  it('doubles the 1–5 scale onto 0–10', () => {
+  it('doubles the 0–5 half-star scale onto 0–10', () => {
     expect(myshowsToJellyfinRating(5)).toBe(10)
     expect(myshowsToJellyfinRating(4)).toBe(8)
-    expect(myshowsToJellyfinRating(1)).toBe(2)
+    expect(myshowsToJellyfinRating(3.5)).toBe(7) // half-star preserved
+    expect(myshowsToJellyfinRating(0.5)).toBe(1)
   })
   it('treats null/0 as unrated', () => {
     expect(myshowsToJellyfinRating(null)).toBeNull()
@@ -151,17 +152,14 @@ describe('myshowsToJellyfinRating', () => {
 })
 
 describe('jellyfinToMyshowsRating', () => {
-  it('halves the 0–10 scale onto 1–5', () => {
+  it('halves the 0–10 scale onto 0–5 half-stars (exact for whole points)', () => {
     expect(jellyfinToMyshowsRating(10)).toBe(5)
     expect(jellyfinToMyshowsRating(8)).toBe(4)
-    expect(jellyfinToMyshowsRating(6)).toBe(3)
+    expect(jellyfinToMyshowsRating(7)).toBe(3.5) // half-star, not rounded to 4
+    expect(jellyfinToMyshowsRating(5)).toBe(2.5)
   })
-  it('never rounds a positive rating down to unrated', () => {
-    expect(jellyfinToMyshowsRating(1)).toBe(1)
-  })
-  it('rounds halves to the nearest MyShows point', () => {
-    expect(jellyfinToMyshowsRating(7)).toBe(4) // 3.5 → 4
-    expect(jellyfinToMyshowsRating(5)).toBe(3) // 2.5 → 3
+  it('never drops a positive rating to unrated (min half-star)', () => {
+    expect(jellyfinToMyshowsRating(1)).toBe(0.5)
   })
   it('treats null/0 as unrated', () => {
     expect(jellyfinToMyshowsRating(null)).toBeNull()

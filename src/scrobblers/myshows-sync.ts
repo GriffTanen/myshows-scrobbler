@@ -235,18 +235,18 @@ async function setMovieFinished(movieId: number): Promise<boolean> {
 
 // ── MyShows rating read/write (rating sync) ──────────────────────────────────
 
-/** The user's rating for a movie on MyShows, 1–5, or null when unrated / lookup failed. */
+/** The user's rating for a movie on MyShows (0.5–5 half-star), or null when unrated / lookup failed. */
 async function getMovieRating(movieId: number): Promise<number | null> {
   const res = await rpcWithRefresh<ProfileMovie>('profile.Movie', { movieId })
   const r = res?.rating
   return typeof r === 'number' && r > 0 ? r : null
 }
-/** Set (1–5) or clear (0) the user's rating for a movie. Returns success. */
+/** Set (0.5–5 half-star) or clear (0) the user's rating for a movie. Returns success. */
 async function rateMovie(movieId: number, rating: number): Promise<boolean> {
   const res = await rpcWithRefresh<unknown>('manage.RateMovie', { movieId, rating })
   return res !== null
 }
-/** Set (1–5) or clear (0) the user's rating for a show. Note: the param key is `id`, not `showId`. */
+/** Set (0.5–5 half-star) or clear (0) the user's rating for a show. Note: the param key is `id`, not `showId`. */
 async function rateShow(showId: number, rating: number): Promise<boolean> {
   const res = await rpcWithRefresh<unknown>('manage.RateShow', { id: showId, rating })
   return res !== null
@@ -260,7 +260,7 @@ async function getProfileShows(): Promise<{ id: number; title: string; titleOrig
   return list.map((r) => r.show).filter((sh) => !!sh && typeof sh.id === 'number')
 }
 
-/** The user's shows on MyShows with their own rating (1–5, or null when unrated), for rating sync. */
+/** The user's shows on MyShows with their own rating (0.5–5 half-star, or null when unrated), for rating sync. */
 async function getProfileShowsWithRating(): Promise<
   { id: number; title: string; titleOriginal: string; rating: number | null }[]
 > {
@@ -289,31 +289,33 @@ export function imdbFromMyShows(id: number): string {
   return 'tt' + String(id).padStart(7, '0')
 }
 
-// ── Rating scale conversion (MyShows is 1–5, Jellyfin is 0–10) ───────────────
+// ── Rating scale conversion ──────────────────────────────────────────────────
+// MyShows rates 0–5 in half-star steps (0, 0.5, 1, … 5) — the internal RPC accepts and reports
+// fractional values and rejects anything > 5 ("invalid rating"). Jellyfin rates 0–10. The two are
+// the same 10-notch scale at a ×2 offset, so conversion is exact in both directions.
 
 /**
- * MyShows rating (1–5) → Jellyfin rating (0–10). Simple ×2 so the halves line up
- * (5→10, 4→8, …). Null/0 (unrated) stays null. Result is clamped to 0–10.
+ * MyShows rating (0–5, half-star) → Jellyfin rating (0–10). Exact ×2 (3.5★→7, 5★→10).
+ * Null/0 (unrated) stays null.
  */
 export function myshowsToJellyfinRating(ms: number | null): number | null {
   if (ms == null || ms <= 0) {
     return null
   }
-  return Math.min(10, Math.max(0, Math.round(ms * 2)))
+  return Math.min(10, ms * 2)
 }
 
 /**
- * Jellyfin rating (0–10, may carry a .5) → MyShows rating (1–5). Halve and round to nearest,
- * but never round a positive rating down to 0 (a 1/10 becomes 1, not 0). Null/0 stays null.
- * This is deliberately not a perfect inverse of the ×2 above: it makes re-preview idempotent
- * (a 7/10 → 4 on MyShows → 8/10 back is stable once both sides settle) while never dropping a
- * real rating to "unrated".
+ * Jellyfin rating (0–10) → MyShows rating (0.5–5, half-star). Round to the nearest whole Jellyfin
+ * point, then halve — so 7→3.5, 5→2.5, 1→0.5 — landing exactly on a valid MyShows half-star and
+ * never dropping a real rating to "unrated". Null/0 stays null. Exact inverse of the ×2 above for
+ * whole-point Jellyfin ratings, which keeps re-preview idempotent.
  */
 export function jellyfinToMyshowsRating(jf: number | null): number | null {
   if (jf == null || jf <= 0) {
     return null
   }
-  return Math.min(5, Math.max(1, Math.round(jf / 2)))
+  return Math.min(5, Math.max(0.5, Math.round(jf) / 2))
 }
 
 // ── Pure mapping helpers (unit-tested) ───────────────────────────────────────

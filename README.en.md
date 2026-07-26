@@ -224,7 +224,7 @@ The direction switch in the panel also supports the **reverse import: MyShows �
 
 ### Rating sync
 
-The same run also carries over your **movie and show ratings** (in the chosen direction). The scales differ — MyShows uses 1–5, Jellyfin 0–10 — so a rating is converted automatically (MyShows → Jellyfin is ×2, the other way is halved and rounded). The preview shows separately how many ratings will be brought over.
+The same run also carries over your **movie and show ratings** (in the chosen direction). The scales differ in magnitude — MyShows uses 0–5 in half-star steps, Jellyfin 0–10 — but it's the same 10-notch scale at a ×2 offset, so a rating converts exactly in both directions (3.5★ ↔ 7/10). The preview shows separately how many ratings will be brought over.
 
 Ratings that already match on both sides are skipped. When the same title is rated **differently** on each side, that's a **conflict**: it is never overwritten blindly — it's shown in the preview and skipped. Only ratings the receiver doesn't have yet are written. Writing a rating is reversible on either side.
 
